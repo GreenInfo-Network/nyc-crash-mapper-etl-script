@@ -9,7 +9,6 @@ import logging
 import sys
 import os
 
-# TO DO: remove $limit clause on SODA API request for production
 
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
@@ -26,10 +25,8 @@ logger = logging.getLogger()
 
 def get_max_date_from_carto():
   """
-  Makes a GET request to the CARTO SQL API and returns the latest date
-  from the crash data table as a datetime.date object. We only want data from
-  the SODA API that is not in our crashes table, so we use this date for a where
-  clause filter when requesting data from SODA API
+  Makes a GET request to the CARTO SQL API for the most recent date
+  from the crash data table. Returns the date as a datetime date object
   """
   query='SELECT max(date_val) as latest_date FROM %s' % CARTO_CRASHES_TABLE
   logger.info('Getting latest date from table %s...' % CARTO_CRASHES_TABLE)
@@ -55,18 +52,20 @@ def get_max_date_from_carto():
 
 def get_soda_data(dateobj):
   """
-  Makes a GET request to the Socrata SODA API for the latest collision data
-  using a `where date > dateobj` filter in the request.
-  @param {dateobj} datetime.date object
+  Makes a GET request to the Socrata SODA API for collision data
+  using a where filter, order (by), and limit in the request.
+  Limit is purposefully set high in case the Socrata data hasn't
+  been updated in a few months.
+  @param {dateobj} datetime date object of the last date in the crashes table
   """
   datestring = dateobj.strftime('%Y-%m-%d')
   baseurl = "https://data.cityofnewyork.us/resource/qiz3-axqb.json"
   payload = {
-    '$where': "date > '%s'" % datestring,
+    '$where': "date >= '%s'" % datestring,
     '$order': 'date DESC',
-    '$limit': '10' ############################### REMOVE THIS LINE FOR PRODUCTION ##########################################
-    }
-  print(payload)
+    '$limit': '60000'
+  }
+
   logger.info('Getting latest collision data from Socrata SODA API...')
 
   try:
@@ -85,7 +84,7 @@ def get_soda_data(dateobj):
     logger.error(data['message'])
     sys.exit(1)
   else:
-    logger.info('No new data from Socrata, exiting.')
+    logger.info('No data returned from Socrata, exiting.')
     sys.exit()
 
 
@@ -113,7 +112,7 @@ def format_string_for_postgres_array(values, field_name):
     if field_name_full in values:
       tmp_list.append(values[field_name_full])
 
-  return "{%s}" % ','.join(tmp_list)
+  return "ARRAY['%s']" % ','.join(tmp_list)
 
 
 def format_string_for_insert_val():
@@ -125,8 +124,10 @@ def format_string_for_insert_val():
   val_string_tmp = []
 
   for i in range(0, 23):
-    if i < 8 or i == 14 or i == 15 or i == 16 or i > 18:
+    if i < 8 or i >= 14:
       val_string_tmp.append("{%d}" % i)
+    elif i == 13:
+      val_string_tmp.append("'{%d}'::timestamptz" % i)
     else:
       val_string_tmp.append("'{%d}'" % i)
 
@@ -143,7 +144,7 @@ def format_soda_response(data):
   # array to store insert value strings
   vals = []
 
-  # create our insert value template string once, copy it using string.slice when iterating over data list
+  # create our value template string once then copy it using string.slice when iterating over data list
   insert_val_template_string = format_string_for_insert_val()
 
   # iterate over data array and format each dictionary's values into strings for the INSERT SQL query
@@ -197,6 +198,7 @@ def format_soda_response(data):
     else:
       cross_street_name = ''
 
+    # ditto for zip_code
     if 'zip_code' in row:
       zipcode = row['zip_code']
     else:
@@ -208,8 +210,10 @@ def format_soda_response(data):
     # ditto for 5 potential vehicle_type values
     vehicle_type = format_string_for_postgres_array(row, 'vehicle_type_code')
 
+    # copy our template value string
     val_string = insert_val_template_string[:]
 
+    # create the sql value string
     vals.append(val_string.format(
       row['number_of_motorist_killed'],
       row['number_of_motorist_injured'],
@@ -244,6 +248,7 @@ def create_sql_insert(vals):
   Creates the SQL INSERT statment using a list of strings formatted to match values
   @param {vals} list of strings
   """
+  # field names for the crashes table which get values inserted into them
   column_names_string = '''
   number_of_motorist_killed
   number_of_motorist_injured
@@ -272,12 +277,43 @@ def create_sql_insert(vals):
   column_name_list_tmp = [n.strip() for n in column_names_string.split('\n')]
   column_name_list = [n for n in column_name_list_tmp if n != '']
 
+  # only insert data that doesn't exist in our table already
   sql = '''
-  INSERT INTO {0} ({1})
-  VALUES {2}
-  '''.format(CARTO_CRASHES_TABLE, ','.join(column_name_list), ','.join(vals))
+  WITH
+  n({0}) AS (
+  VALUES {1}
+  )
+  INSERT INTO {2} ({0})
+  SELECT n.number_of_motorist_killed,
+  n.number_of_motorist_injured,
+  n.number_of_cyclist_killed,
+  n.number_of_cyclist_injured,
+  n.number_of_pedestrian_killed,
+  n.number_of_pedestrian_injured,
+  n.number_of_persons_killed,
+  n.number_of_persons_injured,
+  n.zip_code,
+  n.off_street_name,
+  n.cross_street_name,
+  n.on_street_name,
+  n.borough,
+  n.date_val,
+  n.longitude,
+  n.latitude,
+  n.the_geom,
+  n.vehicle_type,
+  n.contributing_factor,
+  n.year,
+  n.month,
+  n.crash_count,
+  n.socrata_id
+  FROM n
+  WHERE n.socrata_id NOT IN (
+  SELECT socrata_id FROM {2}
+  )
+  '''.format(','.join(column_name_list), ','.join(vals), CARTO_CRASHES_TABLE)
+  # logger.info('SQL UPSERT query:\n %s' % sql)
 
-  # logger.info('SQL INSERT statement: \n %s' % sql)
   insert_new_collision_data(sql)
 
 
