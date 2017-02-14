@@ -3,13 +3,12 @@
 
 import requests
 import urllib
-from datetime import datetime
+import datetime
 import json
 import logging
 import sys
 import os
 
-# TO DO: remove $limit clause on SODA API request for production
 
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
@@ -26,10 +25,11 @@ logger = logging.getLogger()
 
 def get_max_date_from_carto():
   """
-  Makes a GET request to the CARTO SQL API and returns the latest date
-  from the crash data table as a datetime.date object. We only want data from
-  the SODA API that is not in our crashes table, so we use this date for a where
-  clause filter when requesting data from SODA API
+  Makes a GET request to the CARTO SQL API for the most recent date
+  from the crash data table. as a datetime.date object. Uses a datetime.timedelta
+  to go back in time by 90 days from the crashes table date. This is because the
+  Socrata data may not be updated for a few months at a time. Thus the time delta
+  attempts to capture any data recently added.
   """
   query='SELECT max(date_val) as latest_date FROM %s' % CARTO_CRASHES_TABLE
   logger.info('Getting latest date from table %s...' % CARTO_CRASHES_TABLE)
@@ -44,29 +44,33 @@ def get_max_date_from_carto():
 
   if ('rows' in data) and len(data['rows']):
     datestring = data['rows'][0]['latest_date']
-    latest_date = datetime.strptime(datestring, '%Y-%m-%dT%H:%M:%SZ')
+    latest_date = datetime.datetime.strptime(datestring, '%Y-%m-%dT%H:%M:%SZ')
     logger.info('Latest date from table %s is %s' % (CARTO_CRASHES_TABLE, latest_date))
   else:
     logger.error('No rows in response from %s' % CARTO_CRASHES_TABLE, json.dumps(data))
     sys.exit(1)
 
-  return latest_date
+  # make sure there's overlap in case the Socrata data hasn't been updated in a few months...
+  delta = datetime.timedelta(days=90)
+  overlap = latest_date - delta
+
+  return overlap
 
 
 def get_soda_data(dateobj):
   """
-  Makes a GET request to the Socrata SODA API for the latest collision data
+  Makes a GET request to the Socrata SODA API for collision data
   using a `where date > dateobj` filter in the request.
   @param {dateobj} datetime.date object
   """
   datestring = dateobj.strftime('%Y-%m-%d')
   baseurl = "https://data.cityofnewyork.us/resource/qiz3-axqb.json"
   payload = {
-    '$where': "date > '%s'" % datestring,
+    '$where': "date >= '%s'" % datestring,
     '$order': 'date DESC',
-    '$limit': '10' ############################### REMOVE THIS LINE FOR PRODUCTION ##########################################
-    }
-  print(payload)
+    '$limit': '60000'
+  }
+
   logger.info('Getting latest collision data from Socrata SODA API...')
 
   try:
@@ -85,7 +89,7 @@ def get_soda_data(dateobj):
     logger.error(data['message'])
     sys.exit(1)
   else:
-    logger.info('No new data from Socrata, exiting.')
+    logger.info('No data returned from Socrata, exiting.')
     sys.exit()
 
 
@@ -113,7 +117,7 @@ def format_string_for_postgres_array(values, field_name):
     if field_name_full in values:
       tmp_list.append(values[field_name_full])
 
-  return "{%s}" % ','.join(tmp_list)
+  return "ARRAY['%s']" % ','.join(tmp_list)
 
 
 def format_string_for_insert_val():
@@ -125,8 +129,10 @@ def format_string_for_insert_val():
   val_string_tmp = []
 
   for i in range(0, 23):
-    if i < 8 or i == 14 or i == 15 or i == 16 or i > 18:
+    if i < 8 or i >= 14:
       val_string_tmp.append("{%d}" % i)
+    elif i == 13:
+      val_string_tmp.append("'{%d}'::timestamptz" % i)
     else:
       val_string_tmp.append("'{%d}'" % i)
 
@@ -149,7 +155,7 @@ def format_soda_response(data):
   # iterate over data array and format each dictionary's values into strings for the INSERT SQL query
   for row in data:
     datestring = "%sT%s" % (row['date'].split('T')[0], row['time'])
-    date_time = datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
+    date_time = datetime.datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
     # the borough key is not always included in SODA response object,
     # use an empty string when it's not present
@@ -272,13 +278,80 @@ def create_sql_insert(vals):
   column_name_list_tmp = [n.strip() for n in column_names_string.split('\n')]
   column_name_list = [n for n in column_name_list_tmp if n != '']
 
-  sql = '''
-  INSERT INTO {0} ({1})
-  VALUES {2}
-  '''.format(CARTO_CRASHES_TABLE, ','.join(column_name_list), ','.join(vals))
+  # could just change this to an insert where the socrata_id doesn't exist,
+  # as there's no need to update rows that already exist
+  upsert='''
+  WITH
+  n({0}) AS (
+  VALUES {1}
+  ),
+  upsert AS (
+  UPDATE {2} o
+  SET number_of_motorist_killed = n.number_of_motorist_killed,
+  number_of_motorist_injured = n.number_of_motorist_injured,
+  number_of_cyclist_killed = n.number_of_cyclist_killed,
+  number_of_cyclist_injured = n.number_of_cyclist_injured,
+  number_of_pedestrian_killed = n.number_of_pedestrian_killed,
+  number_of_pedestrian_injured = n.number_of_pedestrian_injured,
+  number_of_persons_killed = n.number_of_persons_killed,
+  number_of_persons_injured = n.number_of_persons_injured,
+  zip_code = n.zip_code,
+  off_street_name = n.off_street_name,
+  cross_street_name = n.cross_street_name,
+  on_street_name = n.on_street_name,
+  borough = n.borough,
+  date_val = n.date_val,
+  longitude = n.longitude,
+  latitude = n.latitude,
+  the_geom = n.the_geom,
+  vehicle_type = n.vehicle_type,
+  contributing_factor = n.contributing_factor,
+  year = n.year,
+  month = n.month,
+  crash_count = n.crash_count,
+  socrata_id = n.socrata_id
+  FROM n
+  WHERE o.socrata_id = n.socrata_id
+  RETURNING o.socrata_id
+  )
+  INSERT INTO {2} ({0})
+  SELECT n.number_of_motorist_killed,
+  n.number_of_motorist_injured,
+  n.number_of_cyclist_killed,
+  n.number_of_cyclist_injured,
+  n.number_of_pedestrian_killed,
+  n.number_of_pedestrian_injured,
+  n.number_of_persons_killed,
+  n.number_of_persons_injured,
+  n.zip_code,
+  n.off_street_name,
+  n.cross_street_name,
+  n.on_street_name,
+  n.borough,
+  n.date_val,
+  n.longitude,
+  n.latitude,
+  n.the_geom,
+  n.vehicle_type,
+  n.contributing_factor,
+  n.year,
+  n.month,
+  n.crash_count,
+  n.socrata_id
+  FROM n
+  WHERE n.socrata_id NOT IN (
+  SELECT socrata_id FROM upsert
+  )
+  '''.format(','.join(column_name_list), ','.join(vals), CARTO_CRASHES_TABLE)
+  # logger.info('SQL UPSERT query:\n %s' % upsert)
 
+  # sql = '''
+  # INSERT INTO {0} ({1})
+  # VALUES {2}
+  # '''.format(CARTO_CRASHES_TABLE, ','.join(column_name_list), ','.join(vals))
   # logger.info('SQL INSERT statement: \n %s' % sql)
-  insert_new_collision_data(sql)
+
+  insert_new_collision_data(upsert)
 
 
 def insert_new_collision_data(query):
