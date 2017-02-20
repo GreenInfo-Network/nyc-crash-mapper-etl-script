@@ -12,7 +12,7 @@ import os
 
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
-CARTO_CRASHES_TABLE = 'etl_test'
+CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 
@@ -78,7 +78,8 @@ def get_soda_data(dateobj):
 
     if isinstance(data, list) and len(data):
         # there's data!
-        format_soda_response(r.json())
+        # print(json.dumps(data))
+        format_soda_response(data)
     elif isinstance(data, dict) and data['error']:
         # error in SODA API call
         logger.error(data['message'])
@@ -311,9 +312,10 @@ def create_sql_insert(vals):
     FROM n
     WHERE n.socrata_id NOT IN (
     SELECT socrata_id FROM {2}
+    WHERE socrata_id IS NOT NULL
     )
     '''.format(','.join(column_name_list), ','.join(vals), CARTO_CRASHES_TABLE)
-    # logger.info('SQL UPSERT query:\n %s' % sql)
+    #logger.info('SQL UPSERT query:\n %s' % sql)
 
     insert_new_collision_data(sql)
 
@@ -336,6 +338,7 @@ def insert_new_collision_data(query):
 
 def main():
     get_soda_data(get_max_date_from_carto())
+
 
 if __name__ == '__main__':
     main()
