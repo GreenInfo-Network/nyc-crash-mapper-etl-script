@@ -241,7 +241,7 @@ def format_soda_response(data):
             str(row['unique_key'])
         ))
 
-    create_sql_insert(vals)
+    update_carto_table(vals)
 
 
 def create_sql_insert(vals):
@@ -317,13 +317,44 @@ def create_sql_insert(vals):
     '''.format(','.join(column_name_list), ','.join(vals), CARTO_CRASHES_TABLE)
     #logger.info('SQL UPSERT query:\n %s' % sql)
 
-    insert_new_collision_data(sql)
+    return sql 
 
 
-def insert_new_collision_data(query):
+def filter_carto_data():
     """
-    Takes an SQL INSERT statment and uses it with a POST request to
-    the CARTO SQL API
+    SQL query that filters out data outside of NYC, including incorrectly geocoded data.
+    """
+
+    sql = '''
+    UPDATE {0}
+    SET the_geom = NULL 
+    WHERE cartodb_id IN
+    (
+    WITH box AS (
+    SELECT ST_SetSRID(ST_Extent(the_geom), 4326)::geometry as the_geom,
+    666 as cartodb_id
+    FROM nyc_borough
+    )
+    SELECT
+    c.cartodb_id
+    FROM {0} AS c 
+    LEFT JOIN
+    box AS a ON
+    ST_Intersects(c.the_geom, a.the_geom)
+    WHERE a.cartodb_id IS NULL
+    AND c.the_geom IS NOT NULL
+    )
+    '''.format(CARTO_CRASHES_TABLE)
+    #logger.info('SQL UPDATE query:\n %s' % sql)
+
+    return sql
+
+
+def make_carto_sql_api_request(query):
+    """
+    Takes an SQL query and uses it with a POST request to
+    the CARTO SQL API. Passing the API key allows for doing
+    INSERT, UPDATE, and DELETE queries.
     @param {query} string
     """
     payload = {'q': query, 'api_key': CARTO_API_KEY}
@@ -334,6 +365,16 @@ def insert_new_collision_data(query):
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
         sys.exit(1)
+
+
+def update_carto_table(vals):
+    """
+    Updates the master crashes table on CARTO.
+    """
+    # insert the new data
+    make_carto_sql_api_request(create_sql_insert(vals))
+    # filter out any poorly geocoded data afterward (e.g. null island)
+    make_carto_sql_api_request(filter_carto_data())
 
 
 def main():
