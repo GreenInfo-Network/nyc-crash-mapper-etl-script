@@ -104,16 +104,17 @@ def format_string_for_postgres_array(values, field_name):
         logger.error('format_postgres_array must take a valid field name type, %s provided' % field_name)
         sys.exit(1)
 
+	# if field name matches contributing_factor_vehicle_{n} or vehicle_type_code{n}
     for i in range(1, 6):
         if field_name == 'contributing_factor_vehicle' or (field_name == 'vehicle_type_code' and i > 2):
             field_name_full = "{0}_{1}".format(field_name, i)
-        else: #elif field_name == 'vehicle_type_code' and i < 3:
+        else:
             field_name_full = "{0}{1}".format(field_name, i)
 
         if field_name_full in values:
-            tmp_list.append(values[field_name_full])
+            tmp_list.append("'{0}'".format(values[field_name_full]))
 
-    return "ARRAY['%s']" % ','.join(tmp_list)
+    return "ARRAY[%s]::text[]" % ','.join(tmp_list)
 
 
 def format_string_for_insert_val():
@@ -315,9 +316,9 @@ def create_sql_insert(vals):
     WHERE socrata_id IS NOT NULL
     )
     '''.format(','.join(column_name_list), ','.join(vals), CARTO_CRASHES_TABLE)
-    #logger.info('SQL UPSERT query:\n %s' % sql)
+    # logger.info('SQL UPSERT query:\n %s' % sql)
 
-    return sql 
+    return sql
 
 
 def filter_carto_data():
@@ -327,7 +328,7 @@ def filter_carto_data():
 
     sql = '''
     UPDATE {0}
-    SET the_geom = NULL 
+    SET the_geom = NULL
     WHERE cartodb_id IN
     (
     WITH box AS (
@@ -337,7 +338,7 @@ def filter_carto_data():
     )
     SELECT
     c.cartodb_id
-    FROM {0} AS c 
+    FROM {0} AS c
     LEFT JOIN
     box AS a ON
     ST_Intersects(c.the_geom, a.the_geom)
@@ -345,7 +346,7 @@ def filter_carto_data():
     AND c.the_geom IS NOT NULL
     )
     '''.format(CARTO_CRASHES_TABLE)
-    #logger.info('SQL UPDATE query:\n %s' % sql)
+    # logger.info('SQL UPDATE query:\n %s' % sql)
 
     return sql
 
@@ -371,6 +372,7 @@ def update_carto_table(vals):
     """
     Updates the master crashes table on CARTO.
     """
+
     # insert the new data
     make_carto_sql_api_request(create_sql_insert(vals))
     # filter out any poorly geocoded data afterward (e.g. null island)
