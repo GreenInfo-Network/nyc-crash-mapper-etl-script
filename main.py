@@ -120,7 +120,7 @@ def format_string_for_postgres_array(values, field_name):
 def format_string_for_insert_val():
     """
     Creates a placeholder string like \"({0}, {1}, {2}, {3}, {4}, ...)\" for the
-    Postgres INSERT value. Some of the {0} get single quotes for fields in the
+    Postgres INSERT value. Some of the {0} get \"dollar\" quotes for fields in the
     crashes table that are of type text
     """
     val_string_tmp = []
@@ -131,7 +131,7 @@ def format_string_for_insert_val():
         elif i == 13:
             val_string_tmp.append("'{%d}'::timestamptz" % i)
         else:
-            val_string_tmp.append("'{%d}'" % i)
+            val_string_tmp.append("$${%d}$$" % i)
 
     return '(' + ','.join(val_string_tmp) + ')'
 
@@ -183,20 +183,21 @@ def format_soda_response(data):
             lng = 'null'
 
         # ditto for on_street_name
+		# dollar quote strings to escape single quotes in street names like "O'Brien"
         if 'on_street_name' in row:
-            on_street_name = row['on_street_name']
+            on_street_name = row['on_street_name'].strip()
         else:
             on_street_name = ''
 
         # ditto for off_street_name
         if 'off_street_name' in row:
-            off_street_name = row['off_street_name']
+            off_street_name = row['off_street_name'].strip()
         else:
             off_street_name = ''
 
         # ditto for cross_street_name
         if 'cross_street_name' in row:
-            cross_street_name = row['cross_street_name']
+            cross_street_name = row['cross_street_name'].strip()
         else:
             cross_street_name = ''
 
@@ -372,7 +373,6 @@ def update_carto_table(vals):
     """
     Updates the master crashes table on CARTO.
     """
-
     # insert the new data
     make_carto_sql_api_request(create_sql_insert(vals))
     # filter out any poorly geocoded data afterward (e.g. null island)
