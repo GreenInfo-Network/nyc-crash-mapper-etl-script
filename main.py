@@ -15,6 +15,7 @@ CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bas
 CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
+LATEST_DATE = None # the last time the crashes table was updated
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +42,8 @@ def get_max_date_from_carto():
 
     if ('rows' in data) and len(data['rows']):
         datestring = data['rows'][0]['latest_date']
+        global LATEST_DATE
+        LATEST_DATE = datestring
         latest_date = datetime.strptime(datestring, '%Y-%m-%dT%H:%M:%SZ')
         logger.info('Latest date from table %s is %s' % (CARTO_CRASHES_TABLE, latest_date))
     else:
@@ -351,6 +354,70 @@ def filter_carto_data():
 
     return sql
 
+def update_borough():
+    """
+    SQL query that updates the borough column in the crashes table
+    """
+    sql = '''
+    UPDATE {0}
+    SET borough = a.borough
+    FROM nyc_borough a
+    WHERE ST_Within({0}.the_geom, a.the_geom)
+    AND date_val >= date '{1}'
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
+
+def update_city_council():
+    """
+    SQL query that updates the city_council column in the crashes table
+    """
+    sql = '''
+    UPDATE {0}
+    SET city_council = a.identifier
+    FROM nyc_city_council a
+    WHERE ST_Within({0}.the_geom, a.the_geom)
+    AND date_val >= date '{1}'
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
+
+def update_community_board():
+    """
+    SQL query that updates the community_board column in the crashes table
+    """
+    sql = '''
+    UPDATE {0}
+    SET community_board = a.identifier
+    FROM nyc_community_board a
+    WHERE ST_Within({0}.the_geom, a.the_geom)
+    AND date_val >= date '{1}'
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
+
+def update_neighborhood():
+    """
+    SQL query that updates the neighborhood column in the crashes table
+    """
+    sql = '''
+    UPDATE {0}
+    SET neighborhood = a.identifier
+    FROM nyc_neighborhood a
+    WHERE ST_Within({0}.the_geom, a.the_geom)
+    AND date_val >= date '{1}'
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
+
+def update_nypd_precinct():
+    """
+    SQL query that updates the nypd_precinct column in the crashes table
+    """
+    sql = '''
+    UPDATE {0}
+    SET nypd_precinct = a.identifier::int
+    FROM nyc_nypd_precinct a
+    WHERE ST_Within({0}.the_geom, a.the_geom)
+    AND date_val >= date '{1}'
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
 
 def make_carto_sql_api_request(query):
     """
@@ -377,7 +444,16 @@ def update_carto_table(vals):
     make_carto_sql_api_request(create_sql_insert(vals))
     # filter out any poorly geocoded data afterward (e.g. null island)
     make_carto_sql_api_request(filter_carto_data())
-
+    # update the borough column
+    make_carto_sql_api_request(update_borough())
+    # update the city_council column
+    make_carto_sql_api_request(update_city_council())
+    # update the community_board column
+    make_carto_sql_api_request(update_community_board())
+    # update the neighborhood column
+    make_carto_sql_api_request(update_neighborhood())
+    # update the nypd_precinct column
+    make_carto_sql_api_request(update_nypd_precinct())
 
 def main():
     get_soda_data(get_max_date_from_carto())
