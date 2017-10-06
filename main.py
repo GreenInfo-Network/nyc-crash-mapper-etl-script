@@ -419,6 +419,35 @@ def update_nypd_precinct():
     '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
     return sql
 
+def normalizeBoroughSpellings():
+    """
+    SQL query that normalizes borough spellings in the crashes table,
+    because we have spellings like BRONX, Bronx, and The Bronx
+    """
+    sql = '''
+    UPDATE crashes_all_prod
+    SET borough = 'Queens'
+    WHERE borough ilike '%queens%'
+    AND date_val >= date '{1}';
+    UPDATE crashes_all_prod
+    SET borough = 'Bronx'
+    WHERE borough ilike '%bronx%'
+    AND date_val >= date '{1}';
+    UPDATE crashes_all_prod
+    SET borough = 'Brooklyn'
+    WHERE borough ilike '%brooklyn%'
+    AND date_val >= date '{1}';
+    UPDATE crashes_all_prod
+    SET borough = 'Manhattan'
+    WHERE borough ilike '%manhattan%'
+    AND date_val >= date '{1}';
+    UPDATE crashes_all_prod
+    SET borough = 'Staten Island'
+    WHERE borough ilike '%staten island%'
+    AND date_val >= date '{1}';
+    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    return sql
+
 def make_carto_sql_api_request(query):
     """
     Takes an SQL query and uses it with a POST request to
@@ -454,6 +483,8 @@ def update_carto_table(vals):
     make_carto_sql_api_request(update_neighborhood())
     # update the nypd_precinct column
     make_carto_sql_api_request(update_nypd_precinct())
+    # normalize the spellings of boroughs in the borough column
+    make_carto_sql_api_request(normalizeBoroughSpellings())
 
 def main():
     get_soda_data(get_max_date_from_carto())
