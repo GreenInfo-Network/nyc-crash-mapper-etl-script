@@ -25,6 +25,28 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 
+def get_date_monthsago_from_carto(monthsago):
+    """
+    Find a PostgreSQL date string, representing X months ago
+    """
+    monthsago = int(monthsago)  # make it an integer or die trying
+    query = "SELECT current_date - INTERVAL '{0} months' AS backthen".format(monthsago)
+
+    try:
+        r = requests.get(CARTO_SQL_API_BASEURL, params={'q': query})
+        data = r.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+
+    if ('rows' in data) and len(data['rows']):
+        datestring = data['rows'][0]['backthen']
+        return datestring
+    else:
+        logger.error('get_date_monthsago_from_carto(): No rows in response from %s' % CARTO_CRASHES_TABLE, json.dumps(data))
+        sys.exit(1)
+
+
 def get_max_date_from_carto():
     """
     Makes a GET request to the CARTO SQL API for the most recent date
@@ -465,6 +487,41 @@ def make_carto_sql_api_request(query):
         sys.exit(1)
 
 
+def update_intersections_crashcount():
+    """
+    Update the nyc_intersections table crashcount field, the number of crashes found within that circle
+    in the last M months, which did have at least 1 fatality or injury.
+    We can't do this in one query, due to CARTO's 15-second timeout, but we can do X queries to every Xth record, using modulus % operator.
+    """
+
+    logger.info('Intersections crashcount reset')
+    make_carto_sql_api_request("UPDATE {0} SET crashcount=NULL".format(CARTO_INTERSECTIONS_TABLE))
+
+    sincewhen = get_date_monthsago_from_carto(36)
+
+    howmanyblocks = 5
+    for thisblock in range(0, howmanyblocks):
+        logger.info('Intersections crashcount dated {2}: {0}/{1}'.format(thisblock+1, howmanyblocks, sincewhen))
+        sql = """
+        WITH counts AS (
+            SELECT {0}.the_geom, {0}.cartodb_id, COUNT(*) AS howmany
+            FROM {1}
+            JOIN {0} ON
+                ST_CONTAINS({0}.the_geom,{1}.the_geom)
+                AND {1}.date_val >= '{4}'
+                AND ({1}.number_of_persons_injured > 0 OR {1}.number_of_persons_killed > 0)
+                AND {0}.cartodb_id % {3} = {2}
+            GROUP BY {0}.cartodb_id
+        )
+        UPDATE {0}
+        SET crashcount = counts.howmany
+        FROM counts
+        WHERE {0}.cartodb_id = counts.cartodb_id
+        """.format(CARTO_INTERSECTIONS_TABLE, CARTO_CRASHES_TABLE, thisblock, howmanyblocks, sincewhen)
+        make_carto_sql_api_request(sql)
+
+
+
 def update_carto_table(vals):
     """
     Updates the master crashes table on CARTO.
@@ -489,6 +546,9 @@ def update_carto_table(vals):
 def main():
     # get the most recent data from New York's data endpoint, and load it
     get_soda_data(get_max_date_from_carto())
+
+    # update the nyc_intersections crashcount field
+    update_intersections_crashcount()
 
 
 if __name__ == '__main__':
