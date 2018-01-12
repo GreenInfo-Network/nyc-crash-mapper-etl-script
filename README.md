@@ -17,6 +17,21 @@ Install Python requirements:
 pip install -r requirements.txt
 ```
 
+### Pre-Setup on Windows
+
+If you run Windows, you will need to install Python; also, I recommend running under "git bash" as it provides some Unix-like tools and behaviors.
+
+* Install Python for Windows. If you run ArcMap then you probably already have one under *C:\Python27*
+* Install Git for Windows. Open a "Git bash here" for a better command line experience.
+* Set some aliases in your `~/.bashrc` file, then `. ~/.bashrc`
+```
+PATH="$PATH:/c/Python27/ArcGIS10.5/:/c/Python27/ArcGIS10.5/Scripts/"
+alias python='winpty /c/Python27/ArcGIS10.5/python.exe'
+alias pip='/c/Python27/ArcGIS10.5/Scripts/pip.exe'
+```
+* Install foreman for running tasks: `npm install -g foreman` Then remember that command-lines startnig with "foreman" should start with "nf" instead.
+
+
 ## Running Locally
 
 To execute script locally using Python 2.7 and Foreman by doing:
