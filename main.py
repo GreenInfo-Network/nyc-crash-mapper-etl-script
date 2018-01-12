@@ -13,6 +13,7 @@ import os
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
 CARTO_CRASHES_TABLE = 'crashes_all_prod'
+CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 LATEST_DATE = None # the last time the crashes table was updated
@@ -62,7 +63,6 @@ def get_soda_data(dateobj):
     @param {dateobj} datetime date object of the last date in the crashes table
     """
     datestring = dateobj.strftime('%Y-%m-%d')
-    baseurl = "https://data.cityofnewyork.us/resource/qiz3-axqb.json"
     payload = {
         '$where': "date >= '%s'" % datestring,
         '$order': 'date DESC',
@@ -72,7 +72,7 @@ def get_soda_data(dateobj):
     logger.info('Getting latest collision data from Socrata SODA API...')
 
     try:
-        r = requests.get(baseurl, params=payload)
+        r = requests.get(SODA_API_COLLISIONS_BASEURL, params=payload, verify=False)  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
         sys.exit(1)
@@ -487,8 +487,12 @@ def update_carto_table(vals):
     make_carto_sql_api_request(normalizeBoroughSpellings())
 
 def main():
+    # get the most recent data from New York's data endpoint, and load it
     get_soda_data(get_max_date_from_carto())
 
 
 if __name__ == '__main__':
+    if not CARTO_API_KEY:
+        print("No CARTO_API_KEY defined in environment")
+        sys.exit(1)
     main()
