@@ -18,7 +18,6 @@ CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
-LATEST_DATE = None # the last time the crashes table was updated
 
 logging.basicConfig(
     level=logging.INFO,
@@ -220,6 +219,7 @@ def format_soda_response(datarows, already_ids):
             off_street_name,
             cross_street_name,
             on_street_name,
+            '',  # leave borough blank, update_borough() does a better job
             date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             lng,
             lat,
@@ -260,6 +260,7 @@ def create_sql_insert(vals):
     off_street_name
     cross_street_name
     on_street_name
+    borough
     date_val
     longitude
     latitude
@@ -293,6 +294,7 @@ def create_sql_insert(vals):
     n.off_street_name,
     n.cross_street_name,
     n.on_street_name,
+    n.borough,
     n.date_val,
     n.longitude,
     n.latitude,
@@ -347,6 +349,8 @@ def update_borough():
     """
     SQL query that updates the borough column in the crashes table
     """
+    logger.info('Cleanup update_borough()')
+
     sql = '''
     UPDATE {0}
     SET borough = a.borough
@@ -360,6 +364,8 @@ def update_city_council():
     """
     SQL query that updates the city_council column in the crashes table
     """
+    logger.info('Cleanup update_city_council()')
+
     sql = '''
     UPDATE {0}
     SET city_council = a.identifier
@@ -373,6 +379,8 @@ def update_community_board():
     """
     SQL query that updates the community_board column in the crashes table
     """
+    logger.info('Cleanup update_community_board()')
+
     sql = '''
     UPDATE {0}
     SET community_board = a.identifier
@@ -386,6 +394,8 @@ def update_neighborhood():
     """
     SQL query that updates the neighborhood column in the crashes table
     """
+    logger.info('Cleanup update_neighborhood()')
+
     sql = '''
     UPDATE {0}
     SET neighborhood = a.identifier
@@ -399,6 +409,8 @@ def update_nypd_precinct():
     """
     SQL query that updates the nypd_precinct column in the crashes table
     """
+    logger.info('Cleanup update_nypd_precinct()')
+
     sql = '''
     UPDATE {0}
     SET nypd_precinct = a.identifier::int
@@ -431,22 +443,20 @@ def update_carto_table(vals):
     """
     # insert the new data
     make_carto_sql_api_request(create_sql_insert(vals))
-    # filter out any poorly geocoded data afterward (e.g. null island)
-    make_carto_sql_api_request(filter_carto_data())
-    # update the borough column
-    make_carto_sql_api_request(update_borough())
-    # update the city_council column
-    make_carto_sql_api_request(update_city_council())
-    # update the community_board column
-    make_carto_sql_api_request(update_community_board())
-    # update the neighborhood column
-    make_carto_sql_api_request(update_neighborhood())
-    # update the nypd_precinct column
-    make_carto_sql_api_request(update_nypd_precinct())
 
 def main():
     # get the most recent data from New York's data endpoint, and load it
     get_soda_data()
+
+    # filter out any poorly geocoded data afterward (e.g. null island)
+    make_carto_sql_api_request(filter_carto_data())
+
+    # update the borough, city councily, nypd precinct, ...
+    make_carto_sql_api_request(update_borough())
+    make_carto_sql_api_request(update_city_council())
+    make_carto_sql_api_request(update_community_board())
+    make_carto_sql_api_request(update_neighborhood())
+    make_carto_sql_api_request(update_nypd_precinct())
 
 
 if __name__ == '__main__':
