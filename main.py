@@ -154,27 +154,17 @@ def format_soda_response(datarows, already_ids):
         datestring = "%sT%s" % (row['date'].split('T')[0], row['time'])
         date_time = datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
-        # the borough key is not always included in SODA response object,
-        # use an empty string when it's not present
-        if 'borough' in row:
-            borough = row['borough']
-        else:
-            borough = ''
-
-        # ditto for longitude
+        # latitude and longitude may or may not be present
         if 'longitude' in row:
             lng = row['longitude']
         else:
             lng = None
 
-        # ditto for latitude
         if 'latitude' in row:
             lat = row['latitude']
         else:
             lat = None
 
-        # if we have lat and lng, create a PostGIS geom from text statement
-        # else make lat, lng, and geom 'null'
         if lat and lng:
             the_geom = "ST_GeomFromText('Point({0} {1})', 4326)".format(lng, lat)
         else:
@@ -183,7 +173,7 @@ def format_soda_response(datarows, already_ids):
             lng = 'null'
 
         # ditto for on_street_name
-		# dollar quote strings to escape single quotes in street names like "O'Brien"
+        # dollar quote strings to escape single quotes in street names like "O'Brien"
         if 'on_street_name' in row:
             on_street_name = row['on_street_name'].strip()
         else:
@@ -230,7 +220,6 @@ def format_soda_response(datarows, already_ids):
             off_street_name,
             cross_street_name,
             on_street_name,
-            borough,
             date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             lng,
             lat,
@@ -271,7 +260,6 @@ def create_sql_insert(vals):
     off_street_name
     cross_street_name
     on_street_name
-    borough
     date_val
     longitude
     latitude
@@ -305,7 +293,6 @@ def create_sql_insert(vals):
     n.off_street_name,
     n.cross_street_name,
     n.on_street_name,
-    n.borough,
     n.date_val,
     n.longitude,
     n.latitude,
@@ -364,9 +351,9 @@ def update_borough():
     UPDATE {0}
     SET borough = a.borough
     FROM nyc_borough a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.borough IS NULL OR {0}.borough='')
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_city_council():
@@ -377,9 +364,9 @@ def update_city_council():
     UPDATE {0}
     SET city_council = a.identifier
     FROM nyc_city_council a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.city_council IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_community_board():
@@ -390,9 +377,9 @@ def update_community_board():
     UPDATE {0}
     SET community_board = a.identifier
     FROM nyc_community_board a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.community_board IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_neighborhood():
@@ -403,9 +390,9 @@ def update_neighborhood():
     UPDATE {0}
     SET neighborhood = a.identifier
     FROM nyc_neighborhood a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.neighborhood IS NULL OR {0}.neighborhood='')
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_nypd_precinct():
@@ -416,38 +403,9 @@ def update_nypd_precinct():
     UPDATE {0}
     SET nypd_precinct = a.identifier::int
     FROM nyc_nypd_precinct a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
-    return sql
-
-def normalizeBoroughSpellings():
-    """
-    SQL query that normalizes borough spellings in the crashes table,
-    because we have spellings like BRONX, Bronx, and The Bronx
-    """
-    sql = '''
-    UPDATE crashes_all_prod
-    SET borough = 'Queens'
-    WHERE borough ilike '%queens%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Bronx'
-    WHERE borough ilike '%bronx%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Brooklyn'
-    WHERE borough ilike '%brooklyn%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Manhattan'
-    WHERE borough ilike '%manhattan%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Staten Island'
-    WHERE borough ilike '%staten island%'
-    AND date_val >= date '{1}';
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.nypd_precinct IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def make_carto_sql_api_request(query):
@@ -485,8 +443,6 @@ def update_carto_table(vals):
     make_carto_sql_api_request(update_neighborhood())
     # update the nypd_precinct column
     make_carto_sql_api_request(update_nypd_precinct())
-    # normalize the spellings of boroughs in the borough column
-    make_carto_sql_api_request(normalizeBoroughSpellings())
 
 def main():
     # get the most recent data from New York's data endpoint, and load it

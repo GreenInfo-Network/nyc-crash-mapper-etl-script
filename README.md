@@ -29,7 +29,7 @@ PATH="$PATH:/c/Python27/ArcGIS10.5/:/c/Python27/ArcGIS10.5/Scripts/"
 alias python='winpty /c/Python27/ArcGIS10.5/python.exe'
 alias pip='/c/Python27/ArcGIS10.5/Scripts/pip.exe'
 ```
-* Install foreman for running tasks: `npm install -g foreman` Then remember that command-lines startnig with "foreman" should start with "nf" instead.
+* Install foreman for running tasks: `npm install -g foreman` Then remember that command-lines starting with "foreman" should start with "nf" instead.
 
 
 ## Running Locally
