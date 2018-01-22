@@ -4,6 +4,8 @@
 import requests
 import urllib
 from datetime import datetime
+from datetime import date
+from dateutil.relativedelta import relativedelta
 import json
 import logging
 import sys
@@ -25,71 +27,61 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 
-def get_max_date_from_carto():
+def get_soda_data():
     """
-    Makes a GET request to the CARTO SQL API for the most recent date
-    from the crash data table. Returns the date as a datetime date object
+    Make a GET request to the Socrata SODA API for collision data within the last month.
+    Limit is purposefully set high as it defaults to 1000, and we routinely see 500 crashes in a single day.
+    Make a call to CARTO to get the list of all socrata_id IDs in this same time period.
     """
-    query='SELECT max(date_val) as latest_date FROM %s' % CARTO_CRASHES_TABLE
-    logger.info('Getting latest date from table %s...' % CARTO_CRASHES_TABLE)
+    amonthago = (date.today() - relativedelta(months=1))
 
+    logger.info('Getting data from Socrata SODA API as of {0}'.format(amonthago))
     try:
-        r = requests.get(CARTO_SQL_API_BASEURL, params={'q': query})
+        crashdata = requests.get(
+            SODA_API_COLLISIONS_BASEURL,
+            params={
+                '$where': "date >= '%s'" % amonthago.strftime('%Y-%m-%d'),
+                '$order': 'date DESC',
+                '$limit': '50000'
+            },
+            verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
+        ).json()
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
         sys.exit(1)
 
-    data = r.json()
-
-    if ('rows' in data) and len(data['rows']):
-        datestring = data['rows'][0]['latest_date']
-        global LATEST_DATE
-        LATEST_DATE = datestring
-        latest_date = datetime.strptime(datestring, '%Y-%m-%dT%H:%M:%SZ')
-        logger.info('Latest date from table %s is %s' % (CARTO_CRASHES_TABLE, latest_date))
-    else:
-        logger.error('No rows in response from %s' % CARTO_CRASHES_TABLE, json.dumps(data))
+    if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
+        logger.info('Got {0} SODA entries OK'.format(len(crashdata)))
+        # print(json.dumps(crashdata))
+    elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
+        logger.error(crashdata['message'])
         sys.exit(1)
-
-    return latest_date
-
-
-def get_soda_data(dateobj):
-    """
-    Makes a GET request to the Socrata SODA API for collision data
-    using a where filter, order (by), and limit in the request.
-    Limit is purposefully set high in case the Socrata data hasn't
-    been updated in a few months.
-    @param {dateobj} datetime date object of the last date in the crashes table
-    """
-    datestring = dateobj.strftime('%Y-%m-%d')
-    payload = {
-        '$where': "date >= '%s'" % datestring,
-        '$order': 'date DESC',
-        '$limit': '60000'
-    }
-
-    logger.info('Getting latest collision data from Socrata SODA API...')
-
-    try:
-        r = requests.get(SODA_API_COLLISIONS_BASEURL, params=payload, verify=False)  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
-    except requests.exceptions.RequestException as e:
-        logger.error(e.message)
-        sys.exit(1)
-
-    data = r.json()
-
-    if isinstance(data, list) and len(data):
-        # there's data!
-        # print(json.dumps(data))
-        format_soda_response(data)
-    elif isinstance(data, dict) and data['error']:
-        # error in SODA API call
-        logger.error(data['message'])
-        sys.exit(1)
-    else:
+    else:  # no data?
         logger.info('No data returned from Socrata, exiting.')
         sys.exit()
+
+    logger.info('Getting socrata_id list from CARTO as of {0}'.format(amonthago))
+    try:
+        alreadydata = requests.get(
+            CARTO_SQL_API_BASEURL,
+            params={
+                'q': "SELECT socrata_id FROM {0} WHERE date_val >= '{1}'".format(CARTO_CRASHES_TABLE, amonthago.strftime('%Y-%m-%dT00:00:00Z')),
+            }
+        ).json()
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+    if not 'rows' in alreadydata or not len(alreadydata['rows']):
+        logger.error('No socrata_id rows: {0}'.format(json.dumps(alreadydata)))
+        sys.exit(1)
+
+    socrata_already = [ r['socrata_id'] for r in alreadydata['rows'] ]
+    # print(socrata_already)
+    logger.info('Got {0} socrata_id entries for existing CARTO records'.format(len(socrata_already)))
+
+    # all done! hand off for real processing
+    format_soda_response(crashdata, socrata_already)
+
 
 
 def format_string_for_postgres_array(values, field_name):
@@ -139,12 +131,12 @@ def format_string_for_insert_val():
     return '(' + ','.join(val_string_tmp) + ')'
 
 
-def format_soda_response(data):
+def format_soda_response(datarows, already_ids):
     """
     Transforms the JSON SODA response into rows for the SQL insert query
     @param {list} data
     """
-    logger.info('Processing {} rows from SODA API.'.format(len(data)))
+    # logger.info('Processing {} rows from SODA API.'.format(len(datarows)))
 
     # array to store insert value strings
     vals = []
@@ -153,31 +145,26 @@ def format_soda_response(data):
     insert_val_template_string = format_string_for_insert_val()
 
     # iterate over data array and format each dictionary's values into strings for the INSERT SQL query
-    for row in data:
+    for row in datarows:
+        # this is already present at CARTO, don't insert a duplicate!
+        # see also create_sql_insert() which has a check as well, but it's A LOT more efficient to bail here
+        if int(row['unique_key']) in already_ids:
+            continue
+
         datestring = "%sT%s" % (row['date'].split('T')[0], row['time'])
         date_time = datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
-        # the borough key is not always included in SODA response object,
-        # use an empty string when it's not present
-        if 'borough' in row:
-            borough = row['borough']
-        else:
-            borough = ''
-
-        # ditto for longitude
+        # latitude and longitude may or may not be present
         if 'longitude' in row:
             lng = row['longitude']
         else:
             lng = None
 
-        # ditto for latitude
         if 'latitude' in row:
             lat = row['latitude']
         else:
             lat = None
 
-        # if we have lat and lng, create a PostGIS geom from text statement
-        # else make lat, lng, and geom 'null'
         if lat and lng:
             the_geom = "ST_GeomFromText('Point({0} {1})', 4326)".format(lng, lat)
         else:
@@ -186,7 +173,7 @@ def format_soda_response(data):
             lng = 'null'
 
         # ditto for on_street_name
-		# dollar quote strings to escape single quotes in street names like "O'Brien"
+        # dollar quote strings to escape single quotes in street names like "O'Brien"
         if 'on_street_name' in row:
             on_street_name = row['on_street_name'].strip()
         else:
@@ -233,7 +220,6 @@ def format_soda_response(data):
             off_street_name,
             cross_street_name,
             on_street_name,
-            borough,
             date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             lng,
             lat,
@@ -246,6 +232,11 @@ def format_soda_response(data):
             str(row['unique_key'])
         ))
 
+        # print([ str(row['unique_key']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
+
+    logger.info('Found {0} new rows to insert into CARTO'.format(len(vals)))
+
+    # ready, go ahead and submit them
     update_carto_table(vals)
 
 
@@ -269,7 +260,6 @@ def create_sql_insert(vals):
     off_street_name
     cross_street_name
     on_street_name
-    borough
     date_val
     longitude
     latitude
@@ -303,7 +293,6 @@ def create_sql_insert(vals):
     n.off_street_name,
     n.cross_street_name,
     n.on_street_name,
-    n.borough,
     n.date_val,
     n.longitude,
     n.latitude,
@@ -362,9 +351,9 @@ def update_borough():
     UPDATE {0}
     SET borough = a.borough
     FROM nyc_borough a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.borough IS NULL OR {0}.borough='')
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_city_council():
@@ -375,9 +364,9 @@ def update_city_council():
     UPDATE {0}
     SET city_council = a.identifier
     FROM nyc_city_council a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.city_council IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_community_board():
@@ -388,9 +377,9 @@ def update_community_board():
     UPDATE {0}
     SET community_board = a.identifier
     FROM nyc_community_board a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.community_board IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_neighborhood():
@@ -401,9 +390,9 @@ def update_neighborhood():
     UPDATE {0}
     SET neighborhood = a.identifier
     FROM nyc_neighborhood a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.neighborhood IS NULL OR {0}.neighborhood='')
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def update_nypd_precinct():
@@ -414,38 +403,9 @@ def update_nypd_precinct():
     UPDATE {0}
     SET nypd_precinct = a.identifier::int
     FROM nyc_nypd_precinct a
-    WHERE ST_Within({0}.the_geom, a.the_geom)
-    AND date_val >= date '{1}'
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
-    return sql
-
-def normalizeBoroughSpellings():
-    """
-    SQL query that normalizes borough spellings in the crashes table,
-    because we have spellings like BRONX, Bronx, and The Bronx
-    """
-    sql = '''
-    UPDATE crashes_all_prod
-    SET borough = 'Queens'
-    WHERE borough ilike '%queens%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Bronx'
-    WHERE borough ilike '%bronx%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Brooklyn'
-    WHERE borough ilike '%brooklyn%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Manhattan'
-    WHERE borough ilike '%manhattan%'
-    AND date_val >= date '{1}';
-    UPDATE crashes_all_prod
-    SET borough = 'Staten Island'
-    WHERE borough ilike '%staten island%'
-    AND date_val >= date '{1}';
-    '''.format(CARTO_CRASHES_TABLE, LATEST_DATE)
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.nypd_precinct IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
 def make_carto_sql_api_request(query):
@@ -483,12 +443,10 @@ def update_carto_table(vals):
     make_carto_sql_api_request(update_neighborhood())
     # update the nypd_precinct column
     make_carto_sql_api_request(update_nypd_precinct())
-    # normalize the spellings of boroughs in the borough column
-    make_carto_sql_api_request(normalizeBoroughSpellings())
 
 def main():
     # get the most recent data from New York's data endpoint, and load it
-    get_soda_data(get_max_date_from_carto())
+    get_soda_data()
 
 
 if __name__ == '__main__':
