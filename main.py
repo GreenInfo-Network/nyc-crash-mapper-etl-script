@@ -469,7 +469,7 @@ def update_intersections_crashcount():
     logger.info('Intersections crashcount reset')
     make_carto_sql_api_request("UPDATE {0} SET crashcount=NULL".format(CARTO_INTERSECTIONS_TABLE))
 
-    sincewhen = get_date_monthsago_from_carto(36)
+    sincewhen = get_date_monthsago_from_carto(24)
 
     howmanyblocks = 5
     for thisblock in range(0, howmanyblocks):
