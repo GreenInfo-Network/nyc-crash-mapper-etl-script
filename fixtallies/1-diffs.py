@@ -49,30 +49,37 @@ diffcsvwriter.writerow([
 
 
 print("Comparing...")
-for crash_id in SODA_RECORDS.keys():
-    scrash = SODA_RECORDS[crash_id]
-    ccrash = CARTO_RECORDS.get(crash_id, None)
-    if not ccrash:  # known effect that some crashes are logged so long after the ETL that we never find them
+for crash_id in CARTO_RECORDS.keys():
+    ccrash = CARTO_RECORDS[crash_id]
+    scrash = SODA_RECORDS.get(crash_id, None)
+    if not scrash:  # known effect that some crashes are logged so long after the ETL that we never find them
         continue
 
     sti = scrash['number_of_persons_injured']
-    sci = scrash['number_of_cyclist_injured']
-    smi = scrash['number_of_motorist_injured']
-    spi = scrash['number_of_pedestrians_injured']
-    stk = scrash['number_of_persons_killed']
-    sck = scrash['number_of_cyclist_killed']
-    smk = scrash['number_of_motorist_killed']
-    spk = scrash['number_of_pedestrians_killed']
     cti = ccrash['number_of_persons_injured']
-    cci = ccrash['number_of_cyclist_injured']
-    cmi = ccrash['number_of_motorist_injured']
-    cpi = ccrash['number_of_pedestrian_injured']
-    cti = ccrash['number_of_persons_killed']
-    cci = ccrash['number_of_cyclist_killed']
-    cmi = ccrash['number_of_motorist_killed']
-    cpi = ccrash['number_of_pedestrian_killed']
 
-    if sti == cti and sci == cci and spi == cpi and smi == cmi:  # all fields match, then we're already fine
+    sci = scrash['number_of_cyclist_injured']
+    cci = ccrash['number_of_cyclist_injured']
+
+    smi = scrash['number_of_motorist_injured']
+    cmi = ccrash['number_of_motorist_injured']
+
+    spi = scrash['number_of_pedestrians_injured']
+    cpi = ccrash['number_of_pedestrian_injured']
+
+    stk = scrash['number_of_persons_killed']
+    ctk = ccrash['number_of_persons_killed']
+
+    sck = scrash['number_of_cyclist_killed']
+    cck = ccrash['number_of_cyclist_killed']
+
+    smk = scrash['number_of_motorist_killed']
+    cmk = ccrash['number_of_motorist_killed']
+
+    spk = scrash['number_of_pedestrians_killed']
+    cpk = ccrash['number_of_pedestrian_killed']
+
+    if sti == cti and sci == cci and spi == cpi and smi == cmi and stk == ctk and sck == cck and spk == cpk and smk == cmk:  # all fields match, then we're already fine
         continue
 
     # generate a CSV row of this diff

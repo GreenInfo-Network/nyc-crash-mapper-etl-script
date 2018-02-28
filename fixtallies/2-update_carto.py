@@ -5,6 +5,7 @@ Examine the SODA and CARTO exports, matching records by socrata_id and unique_ke
 """
 
 import csv
+import sys
 import os
 import requests
 from time import sleep
@@ -61,8 +62,13 @@ def run():
         howmanydone += 1
         if howmanydone % 100 == 0:
             print("PROGRESS: {}".format(howmanydone))
+            sleep(5)
         if howmanydone % 2500 == 0:
-            performcartoquery("VACUUM FULL {}".format(CARTO_CRASHES_TABLE))
+            performcartoquery("VACUUM {}".format(CARTO_CRASHES_TABLE))
+            sleep(20)
+
+    # done
+    performcartoquery("VACUUM FULL {}".format(CARTO_CRASHES_TABLE))
 
 
 def performcartoquery(query):

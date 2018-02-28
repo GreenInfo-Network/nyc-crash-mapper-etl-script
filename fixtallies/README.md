@@ -55,3 +55,16 @@ Run `python 1-diffs.py` This will examine the SODA-provided injury & fatality co
 Check out the **crash_diffs.csv** file, which is the new injury counts for the crashes that need updating. Pick out a few which you have previously identified as anomalous, and see if the new numbers look better.
 
 Run `2-update_carto.py` to load the **crash_diffs.csv** content into CARTO, updating the given records.
+
+This process can take quite some time: throttled to about 1 query per second, and with the API timing out or otherwise failing now and then.
+
+
+### Doing It Again
+
+During the run of CARTO updates, some of them likely failed and went unnoticed. The CARTO API has a rate limit and can time out sometimes, so not every query ran correctly.
+
+So, run this whole thing again and this time you should get only a few diffs.
+
+And, because that run may have missed a few, do it again.
+
+After 3 runs or so, you'll have so few diffs that you can indeed watch them all and confirm that they all worked.
