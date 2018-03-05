@@ -51,17 +51,17 @@ def get_date_monthsago_from_carto(monthsago):
 def get_soda_data():
     """
     Make a GET request to the Socrata SODA API for collision data within the last month.
-    Limit is purposefully set high as it defaults to 1000, and we routinely see 500 crashes in a single day.
+    Limit is purposefully set high as it defaults to 1000, and we routinely see 200-500 crashes in a single day.
     Make a call to CARTO to get the list of all socrata_id IDs in this same time period.
     """
-    amonthago = (date.today() - relativedelta(months=1))
+    sincewhen = (date.today() - relativedelta(months=2))
 
-    logger.info('Getting data from Socrata SODA API as of {0}'.format(amonthago))
+    logger.info('Getting data from Socrata SODA API as of {0}'.format(sincewhen))
     try:
         crashdata = requests.get(
             SODA_API_COLLISIONS_BASEURL,
             params={
-                '$where': "date >= '%s'" % amonthago.strftime('%Y-%m-%d'),
+                '$where': "date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
                 '$order': 'date DESC',
                 '$limit': '50000'
             },
@@ -81,12 +81,12 @@ def get_soda_data():
         logger.info('No data returned from Socrata, exiting.')
         sys.exit()
 
-    logger.info('Getting socrata_id list from CARTO as of {0}'.format(amonthago))
+    logger.info('Getting socrata_id list from CARTO as of {0}'.format(sincewhen))
     try:
         alreadydata = requests.get(
             CARTO_SQL_API_BASEURL,
             params={
-                'q': "SELECT socrata_id FROM {0} WHERE date_val >= '{1}'".format(CARTO_CRASHES_TABLE, amonthago.strftime('%Y-%m-%dT00:00:00Z')),
+                'q': "SELECT socrata_id FROM {0} WHERE date_val >= '{1}'".format(CARTO_CRASHES_TABLE, sincewhen.strftime('%Y-%m-%dT00:00:00Z')),
             }
         ).json()
     except requests.exceptions.RequestException as e:
