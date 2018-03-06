@@ -10,6 +10,7 @@ import json
 import logging
 import sys
 import os
+import time
 
 
 CARTO_USER_NAME = 'chekpeds'
@@ -73,7 +74,7 @@ def get_soda_data():
 
     if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
         logger.info('Got {0} SODA entries OK'.format(len(crashdata)))
-        # print(json.dumps(crashdata))
+        # logger.info(json.dumps(crashdata))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
         logger.error(crashdata['message'])
         sys.exit(1)
@@ -97,7 +98,7 @@ def get_soda_data():
         sys.exit(1)
 
     socrata_already = [ r['socrata_id'] for r in alreadydata['rows'] ]
-    # print(socrata_already)
+    # logger.info(socrata_already)
     logger.info('Got {0} socrata_id entries for existing CARTO records'.format(len(socrata_already)))
 
     # all done! hand off for real processing
@@ -254,7 +255,7 @@ def format_soda_response(datarows, already_ids):
             str(row['unique_key'])
         ))
 
-        # print([ str(row['unique_key']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
+        # logger.info([ str(row['unique_key']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
 
     logger.info('Found {0} new rows to insert into CARTO'.format(len(vals)))
 
@@ -493,13 +494,141 @@ def update_intersections_crashcount():
         make_carto_sql_api_request(sql)
 
 
-
 def update_carto_table(vals):
     """
     Updates the master crashes table on CARTO.
     """
     # insert the new data
     make_carto_sql_api_request(create_sql_insert(vals))
+
+
+def find_updated_killcounts():
+    """
+    Issue 12 and 13: a crash can be changed later when an injury turns out to be fatal, sometimes weeks later.
+    Look for recently-updated records where their injury & killed counts are now different from CARTO
+    Then update the CARTO copy so we have the latest
+    """
+    # fetch the SODA records updated since X days ago, where the update-date is NOT the same as the created-date
+    # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
+    # those don't really count because we would have grabbed them the next day
+    # generate an assoc:  sodacrashrecords[crashid] = crashdetails
+    sincewhen = (date.today() - relativedelta(days=7))
+    logger.info('Find SODA records updated since {0}'.format(sincewhen))
+
+    try:
+        crashdata = requests.get(
+            SODA_API_COLLISIONS_BASEURL,
+            params={
+                '$select': ':*,*',
+                '$where': ":updated_at >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
+                '$limit': '50000'
+            },
+            verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
+        ).json()
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+
+    if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
+        sodacrashrecords = {}
+        for crash in crashdata:
+            if crash[':updated_at'][:10] > crash[':created_at'][:10]:
+                sodacrashrecords[int(crash['unique_key'])] = crash
+        logger.info('Got {0} SODA entries OK'.format(len(sodacrashrecords)))
+    elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
+        logger.error(crashdata['message'])
+        sys.exit(1)
+    else:  # no data?
+        logger.info('No data returned from Socrata, exiting.')
+        sys.exit()
+
+    # SODA uses JSON but doesn't use typing; the tallies and IDs come across as strings; fix that
+    intfields = (
+        'unique_key',
+        'number_of_motorist_killed', 'number_of_motorist_injured',
+        'number_of_cyclist_killed', 'number_of_cyclist_injured',
+        'number_of_pedestrians_killed', 'number_of_pedestrians_injured',
+        'number_of_persons_killed', 'number_of_persons_injured',
+    )
+    for crashid in sodacrashrecords.keys():
+        for field in intfields:
+            sodacrashrecords[crashid][field] = int(sodacrashrecords[crashid][field])
+
+    # fetch the CARTO records corresponding to these recently-updated SODA records
+    # length of the above is about 50 updates per week
+    try:
+        crashidlist = ",".join([ str(crash) for crash in sodacrashrecords.keys() ])
+        cartocrashdata = requests.get(
+            CARTO_SQL_API_BASEURL,
+            params={
+                'q': "SELECT * FROM {0} WHERE socrata_id IN ({1})".format(CARTO_CRASHES_TABLE, crashidlist),
+            }
+        ).json()
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+    if not 'rows' in cartocrashdata or not len(cartocrashdata['rows']):
+        logger.error('No socrata_id rows: {0}'.format(json.dumps(cartocrashdata)))
+        sys.exit(1)
+    cartocrashdata = cartocrashdata['rows']
+
+    # loop over the CARTO crashes and find the corresponding SODA crash (thus the random-access dict/assoc)
+    # if their kill/injury counts don't match, stick them onto a list for updating
+    # tip: pedestrian fields have variation: number_of_pedestrian_killed & number_of_pedestrians_killed (with/without S) and also injured
+    recordstoupdate = []
+    for cartocrash in cartocrashdata:
+        crashid = cartocrash['socrata_id']
+        sodacrash = sodacrashrecords[crashid]
+
+        smk = sodacrash['number_of_motorist_killed']
+        smi = sodacrash['number_of_motorist_injured']
+        sck = sodacrash['number_of_cyclist_killed']
+        sci = sodacrash['number_of_cyclist_injured']
+        spk = sodacrash['number_of_pedestrians_killed']
+        spi = sodacrash['number_of_pedestrians_injured']
+        stk = sodacrash['number_of_persons_killed']
+        sti = sodacrash['number_of_persons_injured']
+
+        cmk = cartocrash['number_of_motorist_killed']
+        cmi = cartocrash['number_of_motorist_injured']
+        cck = cartocrash['number_of_cyclist_killed']
+        cci = cartocrash['number_of_cyclist_injured']
+        cpk = cartocrash['number_of_pedestrian_killed']
+        cpi = cartocrash['number_of_pedestrian_injured']
+        ctk = cartocrash['number_of_persons_killed']
+        cti = cartocrash['number_of_persons_injured']
+
+        if sti == cti and spi == cpi and sci == cci and smi == cmi and stk == ctk and spk == cpk and sck == cck and smk == cmk:
+            continue  # all numbers match, so this one's fine
+
+        logger.info('Updating record {id} from t{cti}/i{ctk} p{cpi}/i{cpk}to t{sti}/i{stk} p{spi}/i{spk}'.format(
+            stk=stk, sti=sti,
+            spk=spk, spi=spi,
+            smk=smk, smi=smi,
+            sck=sck, sci=sci,
+            ctk=ctk, cti=cti,
+            cpk=cpk, cpi=cpi,
+            cmk=cmk, cmi=cmi,
+            cck=cck, cci=cci,
+            id=crashid
+        ))
+        sql = """UPDATE {table} SET 
+                number_of_motorist_killed={smk}, number_of_motorist_injured={smi},
+                number_of_cyclist_killed={sck}, number_of_cyclist_injured={sci},
+                number_of_pedestrian_killed={spk}, number_of_pedestrian_injured={spi},
+                number_of_persons_killed={stk}, number_of_persons_injured={sti}
+                WHERE socrata_id={id}""".format(
+                table=CARTO_CRASHES_TABLE,
+                stk=stk, sti=sti,
+                spk=spk, spi=spi,
+                smk=smk, smi=smi,
+                sck=sck, sci=sci,
+                id=crashid
+            )
+        # logger.info(sql)
+        make_carto_sql_api_request(sql)
+        time.sleep(1)  # 1 query per second rate limit
+
 
 def main():
     # get the most recent data from New York's data endpoint, and load it
@@ -516,11 +645,15 @@ def main():
     make_carto_sql_api_request(update_nypd_precinct())
 
     # update the nyc_intersections crashcount field
+    # giving a rough idea of the most crashy intersections citywide
     update_intersections_crashcount()
+
+    # look for records that have been updated recently, as their injury/killed counts may have changed
+    find_updated_killcounts()
 
 
 if __name__ == '__main__':
     if not CARTO_API_KEY:
-        print("No CARTO_API_KEY defined in environment")
+        logger.info("No CARTO_API_KEY defined in environment")
         sys.exit(1)
     main()
