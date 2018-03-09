@@ -512,7 +512,7 @@ def find_updated_killcounts():
     # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
     # those don't really count because we would have grabbed them the next day
     # generate an assoc:  sodacrashrecords[crashid] = crashdetails
-    sincewhen = (date.today() - relativedelta(days=7))
+    sincewhen = (date.today() - relativedelta(days=30))
     logger.info('Find SODA records updated since {0}'.format(sincewhen))
 
     try:
@@ -532,7 +532,7 @@ def find_updated_killcounts():
     if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
         sodacrashrecords = {}
         for crash in crashdata:
-            if crash[':updated_at'][:10] > crash[':created_at'][:10]:
+            if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
                 sodacrashrecords[int(crash['unique_key'])] = crash
         logger.info('Got {0} SODA entries OK'.format(len(sodacrashrecords)))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
