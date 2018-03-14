@@ -472,7 +472,7 @@ def update_intersections_crashcount():
 
     sincewhen = get_date_monthsago_from_carto(24)
 
-    howmanyblocks = 5
+    howmanyblocks = 10
     for thisblock in range(0, howmanyblocks):
         logger.info('Intersections crashcount dated {2}: {0}/{1}'.format(thisblock+1, howmanyblocks, sincewhen))
         sql = """
@@ -492,6 +492,7 @@ def update_intersections_crashcount():
         WHERE {0}.cartodb_id = counts.cartodb_id
         """.format(CARTO_INTERSECTIONS_TABLE, CARTO_CRASHES_TABLE, thisblock, howmanyblocks, sincewhen)
         make_carto_sql_api_request(sql)
+        time.sleep(5)
 
 
 def update_carto_table(vals):
@@ -512,7 +513,7 @@ def find_updated_killcounts():
     # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
     # those don't really count because we would have grabbed them the next day
     # generate an assoc:  sodacrashrecords[crashid] = crashdetails
-    sincewhen = (date.today() - relativedelta(days=30))
+    sincewhen = (date.today() - relativedelta(days=90))
     logger.info('Find SODA records updated since {0}'.format(sincewhen))
 
     try:
@@ -534,7 +535,7 @@ def find_updated_killcounts():
         for crash in crashdata:
             if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
                 sodacrashrecords[int(crash['unique_key'])] = crash
-        logger.info('Got {0} SODA entries OK'.format(len(sodacrashrecords)))
+        logger.info('Got {0} SODA entries updated since {1}'.format(len(sodacrashrecords), sincewhen))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
         logger.error(crashdata['message'])
         sys.exit(1)
@@ -556,6 +557,7 @@ def find_updated_killcounts():
 
     # fetch the CARTO records corresponding to these recently-updated SODA records
     # length of the above is about 50 updates per week
+    logger.info('Fetching CARTO entries')
     try:
         crashidlist = ",".join([ str(crash) for crash in sodacrashrecords.keys() ])
         cartocrashdata = requests.get(
@@ -571,6 +573,7 @@ def find_updated_killcounts():
         logger.error('No socrata_id rows: {0}'.format(json.dumps(cartocrashdata)))
         sys.exit(1)
     cartocrashdata = cartocrashdata['rows']
+    logger.info('Got {0} CARTO entries matching the above SODA records'.format(len(cartocrashdata)))
 
     # loop over the CARTO crashes and find the corresponding SODA crash (thus the random-access dict/assoc)
     # if their kill/injury counts don't match, stick them onto a list for updating
