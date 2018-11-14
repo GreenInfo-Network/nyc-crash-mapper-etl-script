@@ -20,6 +20,11 @@ CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 
+FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA< look back how many months?
+UPDATES_HOW_FAR_BACK = 90  # when looking for later-modified records, look how many days back?
+INTERSECTIONS_CRASHCOUNT_MONTHS = 24  # when tallying crash counts for intersections, go back how many months?
+
+
 logging.basicConfig(
     level=logging.INFO,
     format=' %(asctime)s - %(levelname)s - %(message)s',
@@ -55,7 +60,7 @@ def get_soda_data():
     Limit is purposefully set high as it defaults to 1000, and we routinely see 200-500 crashes in a single day.
     Make a call to CARTO to get the list of all socrata_id IDs in this same time period.
     """
-    sincewhen = (date.today() - relativedelta(months=2))
+    sincewhen = (date.today() - relativedelta(months=FETCH_HOWMANY_MONTHS))
 
     logger.info('Getting data from Socrata SODA API as of {0}'.format(sincewhen))
     try:
@@ -470,7 +475,7 @@ def update_intersections_crashcount():
     logger.info('Intersections crashcount reset')
     make_carto_sql_api_request("UPDATE {0} SET crashcount=NULL".format(CARTO_INTERSECTIONS_TABLE))
 
-    sincewhen = get_date_monthsago_from_carto(24)
+    sincewhen = get_date_monthsago_from_carto(INTERSECTIONS_CRASHCOUNT_MONTHS)
 
     howmanyblocks = 10
     for thisblock in range(0, howmanyblocks):
@@ -500,6 +505,9 @@ def update_carto_table(vals):
     Updates the master crashes table on CARTO.
     """
     # insert the new data
+    if not len(vals):
+        logger.info('No rows to insert; moving on')
+        return
     make_carto_sql_api_request(create_sql_insert(vals))
 
 
@@ -513,8 +521,8 @@ def find_updated_killcounts():
     # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
     # those don't really count because we would have grabbed them the next day
     # generate an assoc:  sodacrashrecords[crashid] = crashdetails
-    sincewhen = (date.today() - relativedelta(days=90))
-    logger.info('Find SODA records updated since {0}'.format(sincewhen))
+    sincewhen = (date.today() - relativedelta(days=UPDATES_HOW_FAR_BACK))
+    logger.info('Find SODA records updated/modified since {0}'.format(sincewhen))
 
     try:
         crashdata = requests.get(
@@ -556,81 +564,93 @@ def find_updated_killcounts():
             sodacrashrecords[crashid][field] = int(sodacrashrecords[crashid][field])
 
     # fetch the CARTO records corresponding to these recently-updated SODA records
-    # length of the above is about 50 updates per week
-    logger.info('Fetching CARTO entries')
-    try:
-        crashidlist = ",".join([ str(crash) for crash in sodacrashrecords.keys() ])
-        cartocrashdata = requests.get(
-            CARTO_SQL_API_BASEURL,
-            params={
-                'q': "SELECT * FROM {0} WHERE socrata_id IN ({1})".format(CARTO_CRASHES_TABLE, crashidlist),
-            }
-        ).json()
-    except requests.exceptions.RequestException as e:
-        logger.error(e.message)
-        sys.exit(1)
-    if not 'rows' in cartocrashdata or not len(cartocrashdata['rows']):
-        logger.error('No socrata_id rows: {0}'.format(json.dumps(cartocrashdata)))
-        sys.exit(1)
-    cartocrashdata = cartocrashdata['rows']
-    logger.info('Got {0} CARTO entries matching the above SODA records'.format(len(cartocrashdata)))
+    # length of the above is on the order of 50 updates per week or 225 per month,
+    # EXCEPT in weird cases (issue 17) where there's a massive update like 1200 records in 2018-08-22 through 2018-08-25
+    # so, we do them in chunks of 200 and there will USUALLY be only one such chunk
+    chunkstart = 0
+    howmanyperchunk = 200
+    while True:
+        chunkend = chunkstart + howmanyperchunk
+        thesecrashes = sodacrashrecords.keys()[chunkstart:chunkend]
+        crashidlist = ",".join([ str(crash) for crash in thesecrashes ])
+        if not crashidlist:
+            break
+        logger.info('Fetching CARTO IDs, chunk {} to {} has {} records'.format(chunkstart, chunkend, len(thesecrashes)))
+        chunkstart += howmanyperchunk  # for next loop
 
-    # loop over the CARTO crashes and find the corresponding SODA crash (thus the random-access dict/assoc)
-    # if their kill/injury counts don't match, stick them onto a list for updating
-    # tip: pedestrian fields have variation: number_of_pedestrian_killed & number_of_pedestrians_killed (with/without S) and also injured
-    recordstoupdate = []
-    for cartocrash in cartocrashdata:
-        crashid = cartocrash['socrata_id']
-        sodacrash = sodacrashrecords[crashid]
+        try:
+            cartocrashdata = requests.get(
+                CARTO_SQL_API_BASEURL,
+                params={
+                    'q': "SELECT * FROM {0} WHERE socrata_id IN ({1})".format(CARTO_CRASHES_TABLE, crashidlist),
+                }
+            ).json()
+        except requests.exceptions.RequestException as e:
+            logger.error(e.message)
+            sys.exit(1)
+        if not 'rows' in cartocrashdata or not len(cartocrashdata['rows']):
+            logger.error('No socrata_id rows: {0}'.format(json.dumps(cartocrashdata)))
+            sys.exit(1)
+        cartocrashdata = cartocrashdata['rows']
+        logger.info('    Found {0} CARTO entries in this block'.format(len(cartocrashdata)))
 
-        smk = sodacrash['number_of_motorist_killed']
-        smi = sodacrash['number_of_motorist_injured']
-        sck = sodacrash['number_of_cyclist_killed']
-        sci = sodacrash['number_of_cyclist_injured']
-        spk = sodacrash['number_of_pedestrians_killed']
-        spi = sodacrash['number_of_pedestrians_injured']
-        stk = sodacrash['number_of_persons_killed']
-        sti = sodacrash['number_of_persons_injured']
+        # loop over the CARTO crashes and find the corresponding SODA crash (thus the random-access dict/assoc)
+        # if their kill/injury counts don't match, stick them onto a list for updating
+        # tip: pedestrian fields have variation: number_of_pedestrian_killed & number_of_pedestrians_killed (with/without S) and also injured
+        recordstoupdate = []
+        for cartocrash in cartocrashdata:
+            crashid = cartocrash['socrata_id']
+            sodacrash = sodacrashrecords[crashid]
 
-        cmk = cartocrash['number_of_motorist_killed']
-        cmi = cartocrash['number_of_motorist_injured']
-        cck = cartocrash['number_of_cyclist_killed']
-        cci = cartocrash['number_of_cyclist_injured']
-        cpk = cartocrash['number_of_pedestrian_killed']
-        cpi = cartocrash['number_of_pedestrian_injured']
-        ctk = cartocrash['number_of_persons_killed']
-        cti = cartocrash['number_of_persons_injured']
+            smk = sodacrash['number_of_motorist_killed']
+            smi = sodacrash['number_of_motorist_injured']
+            sck = sodacrash['number_of_cyclist_killed']
+            sci = sodacrash['number_of_cyclist_injured']
+            spk = sodacrash['number_of_pedestrians_killed']
+            spi = sodacrash['number_of_pedestrians_injured']
+            stk = sodacrash['number_of_persons_killed']
+            sti = sodacrash['number_of_persons_injured']
 
-        if sti == cti and spi == cpi and sci == cci and smi == cmi and stk == ctk and spk == cpk and sck == cck and smk == cmk:
-            continue  # all numbers match, so this one's fine
+            cmk = cartocrash['number_of_motorist_killed']
+            cmi = cartocrash['number_of_motorist_injured']
+            cck = cartocrash['number_of_cyclist_killed']
+            cci = cartocrash['number_of_cyclist_injured']
+            cpk = cartocrash['number_of_pedestrian_killed']
+            cpi = cartocrash['number_of_pedestrian_injured']
+            ctk = cartocrash['number_of_persons_killed']
+            cti = cartocrash['number_of_persons_injured']
 
-        logger.info('Updating record {id} from t{cti}/i{ctk} p{cpi}/i{cpk}to t{sti}/i{stk} p{spi}/i{spk}'.format(
-            stk=stk, sti=sti,
-            spk=spk, spi=spi,
-            smk=smk, smi=smi,
-            sck=sck, sci=sci,
-            ctk=ctk, cti=cti,
-            cpk=cpk, cpi=cpi,
-            cmk=cmk, cmi=cmi,
-            cck=cck, cci=cci,
-            id=crashid
-        ))
-        sql = """UPDATE {table} SET 
-                number_of_motorist_killed={smk}, number_of_motorist_injured={smi},
-                number_of_cyclist_killed={sck}, number_of_cyclist_injured={sci},
-                number_of_pedestrian_killed={spk}, number_of_pedestrian_injured={spi},
-                number_of_persons_killed={stk}, number_of_persons_injured={sti}
-                WHERE socrata_id={id}""".format(
-                table=CARTO_CRASHES_TABLE,
-                stk=stk, sti=sti,
-                spk=spk, spi=spi,
-                smk=smk, smi=smi,
-                sck=sck, sci=sci,
-                id=crashid
-            )
-        # logger.info(sql)
-        make_carto_sql_api_request(sql)
-        time.sleep(1)  # 1 query per second rate limit
+            if sti == cti and spi == cpi and sci == cci and smi == cmi and stk == ctk and spk == cpk and sck == cck and smk == cmk:
+                continue  # all numbers match, so this one's fine
+
+            logger.info('    Updating record {crashid}'.format(crashid=crashid))
+            logger.info('        FROM T={cti}i/{ctk}k P={cpi}i/{cpk}k C={cci}i/{cck}k M={cmi}i/{cmk}k'.format(
+                ctk=ctk, cti=cti, cpk=cpk, cpi=cpi, cmk=cmk, cmi=cmi, cck=cck, cci=cci
+            ))
+            logger.info('        TO   T={sti}i/{stk}k P={spi}i/{spk}k C={sci}i/{sck}k M={smi}i/{smk}k'.format(
+                stk=stk, sti=sti, spk=spk, spi=spi, smk=smk, smi=smi, sck=sck, sci=sci
+            ))
+            sql = """UPDATE {table} SET 
+                    number_of_motorist_killed={smk}, number_of_motorist_injured={smi},
+                    number_of_cyclist_killed={sck}, number_of_cyclist_injured={sci},
+                    number_of_pedestrian_killed={spk}, number_of_pedestrian_injured={spi},
+                    number_of_persons_killed={stk}, number_of_persons_injured={sti}
+                    WHERE socrata_id={id}""".format(
+                    table=CARTO_CRASHES_TABLE,
+                    stk=stk, sti=sti,
+                    spk=spk, spi=spi,
+                    smk=smk, smi=smi,
+                    sck=sck, sci=sci,
+                    id=crashid
+                )
+            # logger.info(sql)
+            make_carto_sql_api_request(sql)
+            time.sleep(1)  # 1 query per second rate limit
+
+        # done with this chunk
+
+    # done with all updates
+    logger.info('Done updating records')
 
 
 def main():
