@@ -20,7 +20,7 @@ CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 
-FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA< look back how many months?
+FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA, look back how many months?
 UPDATES_HOW_FAR_BACK = 90  # when looking for later-modified records, look how many days back?
 INTERSECTIONS_CRASHCOUNT_MONTHS = 24  # when tallying crash counts for intersections, go back how many months?
 
@@ -403,6 +403,38 @@ def update_city_council():
     '''.format(CARTO_CRASHES_TABLE)
     return sql
 
+def update_senate(modulo):
+    """
+    SQL query that updates the senate column in the crashes table
+    """
+    logger.info('Cleanup update_senate({})'.format(modulo))
+
+    sql = '''
+    UPDATE {0}
+    SET senate = a.identifier
+    FROM nyc_senate a
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.senate IS NULL)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
+    return sql
+
+def update_assembly(modulo):
+    """
+    SQL query that updates the assembly column in the crashes table
+    """
+    logger.info('Cleanup update_assembly({})'.format(modulo))
+
+    sql = '''
+    UPDATE {0}
+    SET assembly = a.identifier
+    FROM nyc_assembly a
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.assembly IS NULL)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
+    return sql
+
 def update_community_board():
     """
     SQL query that updates the community_board column in the crashes table
@@ -458,6 +490,8 @@ def make_carto_sql_api_request(query):
     payload = {'q': query, 'api_key': CARTO_API_KEY}
 
     try:
+        # print(CARTO_SQL_API_BASEURL)
+        # print(payload)
         r = requests.post(CARTO_SQL_API_BASEURL, data=payload)
         logger.info(r.text)
     except requests.exceptions.RequestException as e:
@@ -663,9 +697,33 @@ def main():
     # update the borough, city councily, nypd precinct, ...
     make_carto_sql_api_request(update_borough())
     make_carto_sql_api_request(update_city_council())
+    make_carto_sql_api_request(update_nypd_precinct())
     make_carto_sql_api_request(update_community_board())
     make_carto_sql_api_request(update_neighborhood())
-    make_carto_sql_api_request(update_nypd_precinct())
+
+    # these take 3X longer to run and nobody knows why after 2 weeks with CARTO tech support
+    # need to get the job done, so... punt and do it in blocks
+    make_carto_sql_api_request(update_assembly(1))
+    make_carto_sql_api_request(update_assembly(2))
+    make_carto_sql_api_request(update_assembly(3))
+    make_carto_sql_api_request(update_assembly(4))
+    make_carto_sql_api_request(update_assembly(5))
+    make_carto_sql_api_request(update_assembly(6))
+    make_carto_sql_api_request(update_assembly(7))
+    make_carto_sql_api_request(update_assembly(8))
+    make_carto_sql_api_request(update_assembly(9))
+    make_carto_sql_api_request(update_assembly(0))
+
+    make_carto_sql_api_request(update_senate(1))
+    make_carto_sql_api_request(update_senate(2))
+    make_carto_sql_api_request(update_senate(3))
+    make_carto_sql_api_request(update_senate(4))
+    make_carto_sql_api_request(update_senate(5))
+    make_carto_sql_api_request(update_senate(6))
+    make_carto_sql_api_request(update_senate(7))
+    make_carto_sql_api_request(update_senate(8))
+    make_carto_sql_api_request(update_senate(9))
+    make_carto_sql_api_request(update_senate(0))
 
     # update the nyc_intersections crashcount field
     # giving a rough idea of the most crashy intersections citywide
