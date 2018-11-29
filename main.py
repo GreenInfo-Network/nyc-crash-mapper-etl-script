@@ -594,6 +594,12 @@ def find_updated_killcounts():
         'number_of_persons_killed', 'number_of_persons_injured',
     )
     for crashid in sodacrashrecords.keys():
+        # Nov 2018, a single record 4022160 lacks number_of_persons_X fields, which is a fatal error if we let it go
+        if 'number_of_persons_killed' not in sodacrashrecords[crashid]:
+            sodacrashrecords[crashid]['number_of_persons_killed'] = int(sodacrashrecords[crashid]['number_of_motorist_killed']) + int(sodacrashrecords[crashid]['number_of_cyclist_killed']) + int(sodacrashrecords[crashid]['number_of_pedestrians_killed'])
+        if 'number_of_persons_injured' not in sodacrashrecords[crashid]:
+            sodacrashrecords[crashid]['number_of_persons_injured'] = int(sodacrashrecords[crashid]['number_of_motorist_injured']) + int(sodacrashrecords[crashid]['number_of_cyclist_injured']) + int(sodacrashrecords[crashid]['number_of_pedestrians_injured'])
+
         for field in intfields:
             sodacrashrecords[crashid][field] = int(sodacrashrecords[crashid][field])
 
