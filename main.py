@@ -134,7 +134,8 @@ def format_string_for_postgres_array(values, field_name):
             field_name_full = "{0}{1}".format(field_name, i)
 
         if field_name_full in values:
-            tmp_list.append("'{0}'".format(values[field_name_full]))
+            thisvalue = values[field_name_full].replace("'", "")
+            tmp_list.append("'{0}'".format(thisvalue))
 
     return "ARRAY[%s]::text[]" % ','.join(tmp_list)
 
@@ -224,6 +225,12 @@ def format_soda_response(datarows, already_ids):
         else:
             zipcode = ''
 
+        # Nov 2018, a few rare records (4022160, 4051650) lacks number_of_persons_X fields, which is a fatal error if we let it go
+        if 'number_of_persons_killed' not in row:
+            row['number_of_persons_killed'] = int(row['number_of_motorist_killed']) + int(row['number_of_cyclist_killed']) + int(row['number_of_pedestrians_killed'])
+        if 'number_of_persons_injured' not in row:
+            row['number_of_persons_injured'] = int(row['number_of_motorist_injured']) + int(row['number_of_cyclist_injured']) + int(row['number_of_pedestrians_injured'])
+
         # format 5 potential values for contributing_factor into a string formatted for a Postgres array
         contributing_factor = format_string_for_postgres_array(row, 'contributing_factor_vehicle')
 
@@ -274,6 +281,8 @@ def create_sql_insert(vals):
     each row being inserted.
     @param {vals} list of strings
     """
+    logger.info('Creating CARTO SQL insert for {0} new rows'.format(len(vals)))
+
     # field names for the crashes table which get values inserted into them
     column_names_string = '''
     number_of_motorist_killed
@@ -594,7 +603,7 @@ def find_updated_killcounts():
         'number_of_persons_killed', 'number_of_persons_injured',
     )
     for crashid in sodacrashrecords.keys():
-        # Nov 2018, a single record 4022160 lacks number_of_persons_X fields, which is a fatal error if we let it go
+        # Nov 2018, a few rare records (4022160, 4051650) lacks number_of_persons_X fields, which is a fatal error if we let it go
         if 'number_of_persons_killed' not in sodacrashrecords[crashid]:
             sodacrashrecords[crashid]['number_of_persons_killed'] = int(sodacrashrecords[crashid]['number_of_motorist_killed']) + int(sodacrashrecords[crashid]['number_of_cyclist_killed']) + int(sodacrashrecords[crashid]['number_of_pedestrians_killed'])
         if 'number_of_persons_injured' not in sodacrashrecords[crashid]:
