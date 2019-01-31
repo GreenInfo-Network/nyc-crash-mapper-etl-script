@@ -382,11 +382,11 @@ def filter_carto_data():
 
     return sql
 
-def update_borough():
+def update_borough(modulo):
     """
     SQL query that updates the borough column in the crashes table
     """
-    logger.info('Cleanup update_borough()')
+    logger.info('Cleanup update_borough({})'.format(modulo))
 
     sql = '''
     UPDATE {0}
@@ -394,14 +394,15 @@ def update_borough():
     FROM nyc_borough a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.borough IS NULL OR {0}.borough='')
-    '''.format(CARTO_CRASHES_TABLE)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
-def update_city_council():
+def update_city_council(modulo):
     """
     SQL query that updates the city_council column in the crashes table
     """
-    logger.info('Cleanup update_city_council()')
+    logger.info('Cleanup update_city_council({})'.format(modulo))
 
     sql = '''
     UPDATE {0}
@@ -409,7 +410,8 @@ def update_city_council():
     FROM nyc_city_council a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.city_council IS NULL)
-    '''.format(CARTO_CRASHES_TABLE)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
 def update_senate(modulo):
@@ -444,11 +446,11 @@ def update_assembly(modulo):
     '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
-def update_community_board():
+def update_community_board(modulo):
     """
     SQL query that updates the community_board column in the crashes table
     """
-    logger.info('Cleanup update_community_board()')
+    logger.info('Cleanup update_community_board({})'.format(modulo))
 
     sql = '''
     UPDATE {0}
@@ -456,14 +458,15 @@ def update_community_board():
     FROM nyc_community_board a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.community_board IS NULL)
-    '''.format(CARTO_CRASHES_TABLE)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
-def update_neighborhood():
+def update_neighborhood(modulo):
     """
     SQL query that updates the neighborhood column in the crashes table
     """
-    logger.info('Cleanup update_neighborhood()')
+    logger.info('Cleanup update_neighborhood({})'.format(modulo))
 
     sql = '''
     UPDATE {0}
@@ -471,14 +474,15 @@ def update_neighborhood():
     FROM nyc_neighborhood a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.neighborhood IS NULL OR {0}.neighborhood='')
-    '''.format(CARTO_CRASHES_TABLE)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
-def update_nypd_precinct():
+def update_nypd_precinct(modulo):
     """
     SQL query that updates the nypd_precinct column in the crashes table
     """
-    logger.info('Cleanup update_nypd_precinct()')
+    logger.info('Cleanup update_nypd_precinct({})'.format(modulo))
 
     sql = '''
     UPDATE {0}
@@ -486,7 +490,8 @@ def update_nypd_precinct():
     FROM nyc_nypd_precinct a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.nypd_precinct IS NULL)
-    '''.format(CARTO_CRASHES_TABLE)
+    AND {0}.cartodb_id % 10 = {1}
+    '''.format(CARTO_CRASHES_TABLE, modulo)
     return sql
 
 def make_carto_sql_api_request(query):
@@ -710,14 +715,65 @@ def main():
     make_carto_sql_api_request(filter_carto_data())
 
     # update the borough, city councily, nypd precinct, ...
-    make_carto_sql_api_request(update_borough())
-    make_carto_sql_api_request(update_city_council())
-    make_carto_sql_api_request(update_nypd_precinct())
-    make_carto_sql_api_request(update_community_board())
-    make_carto_sql_api_request(update_neighborhood())
+    # these are done in blocks cuz we only ave a few seconds before the CARTO API hangs up on us
+    # for Senate and Assembly the query planner won't use indexes properly, so they take 10X longer than the others
+    # but the others (Borough, City Council, etc) can still exceed the time limit if we have a ton of changes, e.g. after a 2-month hiatus
 
-    # these take 3X longer to run and nobody knows why after 2 weeks with CARTO tech support
-    # need to get the job done, so... punt and do it in blocks
+    make_carto_sql_api_request(update_borough(1))
+    make_carto_sql_api_request(update_borough(2))
+    make_carto_sql_api_request(update_borough(3))
+    make_carto_sql_api_request(update_borough(4))
+    make_carto_sql_api_request(update_borough(5))
+    make_carto_sql_api_request(update_borough(6))
+    make_carto_sql_api_request(update_borough(7))
+    make_carto_sql_api_request(update_borough(8))
+    make_carto_sql_api_request(update_borough(9))
+    make_carto_sql_api_request(update_borough(0))
+
+    make_carto_sql_api_request(update_city_council(1))
+    make_carto_sql_api_request(update_city_council(2))
+    make_carto_sql_api_request(update_city_council(3))
+    make_carto_sql_api_request(update_city_council(4))
+    make_carto_sql_api_request(update_city_council(5))
+    make_carto_sql_api_request(update_city_council(6))
+    make_carto_sql_api_request(update_city_council(7))
+    make_carto_sql_api_request(update_city_council(8))
+    make_carto_sql_api_request(update_city_council(9))
+    make_carto_sql_api_request(update_city_council(0))
+
+    make_carto_sql_api_request(update_nypd_precinct(1))
+    make_carto_sql_api_request(update_nypd_precinct(2))
+    make_carto_sql_api_request(update_nypd_precinct(3))
+    make_carto_sql_api_request(update_nypd_precinct(4))
+    make_carto_sql_api_request(update_nypd_precinct(5))
+    make_carto_sql_api_request(update_nypd_precinct(6))
+    make_carto_sql_api_request(update_nypd_precinct(7))
+    make_carto_sql_api_request(update_nypd_precinct(8))
+    make_carto_sql_api_request(update_nypd_precinct(9))
+    make_carto_sql_api_request(update_nypd_precinct(0))
+
+    make_carto_sql_api_request(update_community_board(1))
+    make_carto_sql_api_request(update_community_board(2))
+    make_carto_sql_api_request(update_community_board(3))
+    make_carto_sql_api_request(update_community_board(4))
+    make_carto_sql_api_request(update_community_board(5))
+    make_carto_sql_api_request(update_community_board(6))
+    make_carto_sql_api_request(update_community_board(7))
+    make_carto_sql_api_request(update_community_board(8))
+    make_carto_sql_api_request(update_community_board(9))
+    make_carto_sql_api_request(update_community_board(0))
+
+    make_carto_sql_api_request(update_neighborhood(1))
+    make_carto_sql_api_request(update_neighborhood(2))
+    make_carto_sql_api_request(update_neighborhood(3))
+    make_carto_sql_api_request(update_neighborhood(4))
+    make_carto_sql_api_request(update_neighborhood(5))
+    make_carto_sql_api_request(update_neighborhood(6))
+    make_carto_sql_api_request(update_neighborhood(7))
+    make_carto_sql_api_request(update_neighborhood(8))
+    make_carto_sql_api_request(update_neighborhood(9))
+    make_carto_sql_api_request(update_neighborhood(0))
+
     make_carto_sql_api_request(update_assembly(1))
     make_carto_sql_api_request(update_assembly(2))
     make_carto_sql_api_request(update_assembly(3))
