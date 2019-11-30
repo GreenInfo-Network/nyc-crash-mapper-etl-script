@@ -1,7 +1,7 @@
 #!/bin/env python
 """
 Step 2 of the data-correction process described in issue 12
-Examine the SODA and CARTO exports, matching records by socrata_id and unique_key, to find records where the injury counts differ.
+Examine the SODA and CARTO exports, matching records by socrata_id and collision_id, to find records where the injury counts differ.
 """
 
 import csv

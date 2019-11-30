@@ -1,7 +1,7 @@
 #!/bin/env python
 """
 Step 1 of the data-correction process described in issue 12
-Examine the SODA and CARTO exports, matching records by socrata_id and unique_key, to find records where the injury counts differ.
+Examine the SODA and CARTO exports, matching records by socrata_id and collision_id, to find records where the injury counts differ.
 """
 
 # the two input CSVs, and the output CSV for diffs
@@ -14,7 +14,7 @@ DIFFS_OUTFILE = "crash_diffs.csv"
 import csv
 
 # load both CSvs into a pair of structures
-# both are keyed by the crash ID (in CARTO socrata_id, in SODA aka unique_key)
+# both are keyed by the crash ID (in CARTO socrata_id, in SODA aka collision_id)
 # mapping onto the crash fields, so they can easily be compared e.g. CARTO_RECORDS['1234']['injuries'] == SODA_RECORDS['1234']['injuries']
 CARTO_RECORDS = {}
 SODA_RECORDS = {}
@@ -28,7 +28,7 @@ for crashinfo in input_file:
 print("Load {}".format(CSVIN_SODA))
 input_file = csv.DictReader(open(CSVIN_SODA, 'rb'))
 for crashinfo in input_file:
-    crash_id = crashinfo['unique_key']
+    crash_id = crashinfo['collision_id']
     SODA_RECORDS[crash_id] = crashinfo
 
 
@@ -84,7 +84,7 @@ for crash_id in CARTO_RECORDS.keys():
 
     # generate a CSV row of this diff
     diffcsvwriter.writerow([
-        scrash['unique_key'],
+        scrash['collision_id'],
         scrash['number_of_persons_injured'],
         scrash['number_of_cyclist_injured'],
         scrash['number_of_motorist_injured'],

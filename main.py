@@ -18,7 +18,8 @@ CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bas
 CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
-SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
+SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/h9gi-nx95.json'
+SOCRATA_APP_TOKEN_SECRET = os.environ['SOCRATA_APP_TOKEN_SECRET'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_SECRET
 
 FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA, look back how many months?
 UPDATES_HOW_FAR_BACK = 90  # when looking for later-modified records, look how many days back?
@@ -67,9 +68,10 @@ def get_soda_data():
         crashdata = requests.get(
             SODA_API_COLLISIONS_BASEURL,
             params={
-                '$where': "date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
-                '$order': 'date DESC',
-                '$limit': '50000'
+                '$where': "accident_date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
+                '$order': 'accident_date DESC',
+                '$limit': '50000',
+		'$$app_token': '%s' % SOCRATA_APP_TOKEN_SECRET
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
         ).json()
@@ -176,10 +178,10 @@ def format_soda_response(datarows, already_ids):
     for row in datarows:
         # this is already present at CARTO, don't insert a duplicate!
         # see also create_sql_insert() which has a check as well, but it's A LOT more efficient to bail here
-        if int(row['unique_key']) in already_ids:
+        if int(row['collision_id']) in already_ids:
             continue
 
-        datestring = "%sT%s" % (row['date'].split('T')[0], row['time'])
+        datestring = "%sT%s" % (row['accident_date'].split('T')[0], row['accident_time'])
         date_time = datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
         # latitude and longitude may or may not be present
@@ -264,10 +266,10 @@ def format_soda_response(datarows, already_ids):
             date_time.strftime('%Y'),
             date_time.strftime('%m'),
             '1',
-            str(row['unique_key'])
+            str(row['collision_id'])
         ))
 
-        # logger.info([ str(row['unique_key']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
+        # logger.info([ str(row['collision_id']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
 
     logger.info('Found {0} new rows to insert into CARTO'.format(len(vals)))
 
@@ -590,7 +592,7 @@ def find_updated_killcounts():
         sodacrashrecords = {}
         for crash in crashdata:
             if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
-                sodacrashrecords[int(crash['unique_key'])] = crash
+                sodacrashrecords[int(crash['collision_id'])] = crash
         logger.info('Got {0} SODA entries updated since {1}'.format(len(sodacrashrecords), sincewhen))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
         logger.error(crashdata['message'])
@@ -601,7 +603,7 @@ def find_updated_killcounts():
 
     # SODA uses JSON but doesn't use typing; the tallies and IDs come across as strings; fix that
     intfields = (
-        'unique_key',
+        'collision_id',
         'number_of_motorist_killed', 'number_of_motorist_injured',
         'number_of_cyclist_killed', 'number_of_cyclist_injured',
         'number_of_pedestrians_killed', 'number_of_pedestrians_injured',
