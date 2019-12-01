@@ -9,6 +9,7 @@ Requires a `.env` file with the following:
 
 ```
 CARTO_API_KEY='<redacted>'
+SOCRATA_APP_TOKEN_SECRET='<redacted>'
 ```
 
 Install Python requirements:
@@ -47,6 +48,7 @@ To run on Heroku, make sure to:
 ```
 heroku git:remote -a my-heroku-project-name
 heroku config:set CARTO_API_KEY=<redacted>
+heroku config:set SOCRATA_APP_TOKEN_SECRET=<redacted>
 ```
 
 Then provision the Heroku Scheduler, and add a job simply with the following command:
