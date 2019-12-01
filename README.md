@@ -10,6 +10,7 @@ Requires a `.env` file with the following:
 ```
 CARTO_API_KEY='<redacted>'
 SOCRATA_APP_TOKEN_SECRET='<redacted>'
+SOCRATA_APP_TOKEN_PUBLIC='<redacted>'
 ```
 
 Install Python requirements:

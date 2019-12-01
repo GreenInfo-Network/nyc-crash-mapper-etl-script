@@ -20,6 +20,7 @@ CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/h9gi-nx95.json'
 SOCRATA_APP_TOKEN_SECRET = os.environ['SOCRATA_APP_TOKEN_SECRET'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_SECRET
+SOCRATA_APP_TOKEN_PUBLIC = os.environ['SOCRATA_APP_TOKEN_PUBLIC'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_PUBLIC
 
 FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA, look back how many months?
 UPDATES_HOW_FAR_BACK = 90  # when looking for later-modified records, look how many days back?
@@ -71,7 +72,7 @@ def get_soda_data():
                 '$where': "accident_date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
                 '$order': 'accident_date DESC',
                 '$limit': '50000',
-		'$$app_token': '%s' % SOCRATA_APP_TOKEN_SECRET
+		'$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
         ).json()
