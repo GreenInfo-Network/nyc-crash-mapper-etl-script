@@ -69,8 +69,8 @@ def get_soda_data():
         crashdata = requests.get(
             SODA_API_COLLISIONS_BASEURL,
             params={
-                '$where': "accident_date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
-                '$order': 'accident_date DESC',
+                '$where': "crash_date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
+                '$order': 'crash_date DESC',
                 '$limit': '50000',
                 '$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
             },
@@ -182,7 +182,7 @@ def format_soda_response(datarows, already_ids):
         if int(row['collision_id']) in already_ids:
             continue
 
-        datestring = "%sT%s" % (row['accident_date'].split('T')[0], row['accident_time'])
+        datestring = "%sT%s" % (row['crash_date'].split('T')[0], row['crash_time'])
         date_time = datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
         # latitude and longitude may or may not be present
