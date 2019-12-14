@@ -72,7 +72,7 @@ def get_soda_data():
                 '$where': "accident_date >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
                 '$order': 'accident_date DESC',
                 '$limit': '50000',
-		'$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
+                '$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
         ).json()
