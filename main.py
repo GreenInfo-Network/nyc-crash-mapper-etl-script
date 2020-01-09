@@ -15,9 +15,11 @@ import time
 
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
+CARTO_MASTER_KEY = os.environ['CARTO_MASTER_KEY'] # make sure this is available in bash as $CARTO_MASTER_KEY
 CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
+CARTO_BATCH_API_BASEURL = 'https://%s.carto.com/api/v2/sql/job' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/h9gi-nx95.json'
 SOCRATA_APP_TOKEN_SECRET = os.environ['SOCRATA_APP_TOKEN_SECRET'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_SECRET
 SOCRATA_APP_TOKEN_PUBLIC = os.environ['SOCRATA_APP_TOKEN_PUBLIC'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_PUBLIC
@@ -111,7 +113,6 @@ def get_soda_data():
 
     # all done! hand off for real processing
     format_soda_response(crashdata, socrata_already)
-
 
 
 def format_string_for_postgres_array(values, field_name):
@@ -385,11 +386,12 @@ def filter_carto_data():
 
     return sql
 
-def update_borough(modulo):
+
+def update_borough():
     """
-    SQL query that updates the borough column in the crashes table
+    SQL query to update the borough column in the crashes table
     """
-    logger.info('Cleanup update_borough({})'.format(modulo))
+    logger.info('Cleanup update_borough()')
 
     sql = '''
     UPDATE {0}
@@ -397,15 +399,15 @@ def update_borough(modulo):
     FROM nyc_borough a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.borough IS NULL OR {0}.borough='')
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_city_council(modulo):
+
+def update_city_council():
     """
-    SQL query that updates the city_council column in the crashes table
+    SQL query to update the city_council column in the crashes table
     """
-    logger.info('Cleanup update_city_council({})'.format(modulo))
+    logger.info('Cleanup update_city_council()')
 
     sql = '''
     UPDATE {0}
@@ -413,15 +415,15 @@ def update_city_council(modulo):
     FROM nyc_city_council a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.city_council IS NULL)
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_senate(modulo):
+
+def update_senate():
     """
-    SQL query that updates the senate column in the crashes table
+    SQL query to update the senate column in the crashes table
     """
-    logger.info('Cleanup update_senate({})'.format(modulo))
+    logger.info('Cleanup update_senate()')
 
     sql = '''
     UPDATE {0}
@@ -429,15 +431,15 @@ def update_senate(modulo):
     FROM nyc_senate a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.senate IS NULL)
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_assembly(modulo):
+
+def update_assembly():
     """
-    SQL query that updates the assembly column in the crashes table
+    SQL query to update the assembly column in the crashes table
     """
-    logger.info('Cleanup update_assembly({})'.format(modulo))
+    logger.info('Cleanup update_assembly()')
 
     sql = '''
     UPDATE {0}
@@ -445,15 +447,15 @@ def update_assembly(modulo):
     FROM nyc_assembly a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.assembly IS NULL)
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_community_board(modulo):
+
+def update_community_board():
     """
-    SQL query that updates the community_board column in the crashes table
+    SQL query to update the community_board column in the crashes table
     """
-    logger.info('Cleanup update_community_board({})'.format(modulo))
+    logger.info('Cleanup update_community_board()')
 
     sql = '''
     UPDATE {0}
@@ -461,15 +463,15 @@ def update_community_board(modulo):
     FROM nyc_community_board a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.community_board IS NULL)
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_neighborhood(modulo):
+
+def update_neighborhood():
     """
-    SQL query that updates the neighborhood column in the crashes table
+    SQL query to update the neighborhood column in the crashes table
     """
-    logger.info('Cleanup update_neighborhood({})'.format(modulo))
+    logger.info('Cleanup update_neighborhood()')
 
     sql = '''
     UPDATE {0}
@@ -477,15 +479,15 @@ def update_neighborhood(modulo):
     FROM nyc_neighborhood a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.neighborhood IS NULL OR {0}.neighborhood='')
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
 
-def update_nypd_precinct(modulo):
+
+def update_nypd_precinct():
     """
-    SQL query that updates the nypd_precinct column in the crashes table
+    SQL query to update the nypd_precinct column in the crashes table
     """
-    logger.info('Cleanup update_nypd_precinct({})'.format(modulo))
+    logger.info('Cleanup update_nypd_precinct()')
 
     sql = '''
     UPDATE {0}
@@ -493,9 +495,9 @@ def update_nypd_precinct(modulo):
     FROM nyc_nypd_precinct a
     WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
     AND ({0}.nypd_precinct IS NULL)
-    AND {0}.cartodb_id % 10 = {1}
-    '''.format(CARTO_CRASHES_TABLE, modulo)
+    '''.format(CARTO_CRASHES_TABLE)
     return sql
+
 
 def make_carto_sql_api_request(query):
     """
@@ -516,39 +518,58 @@ def make_carto_sql_api_request(query):
         sys.exit(1)
 
 
+def start_carto_batchjob(querylist):
+    # print(query)
+
+    url = "{}?api_key={}".format(CARTO_BATCH_API_BASEURL, CARTO_MASTER_KEY)
+    jsonbody = {
+        'query': querylist,
+    }
+
+    try:
+        r = requests.post(url, json=jsonbody)
+        jobid = r.json()['job_id']
+        logger.info('CARTO Batch Job ID: {}'.format(jobid))
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+
+
+def clear_intersections_crashcount():
+    logger.info('Intersections crashcount reset')
+    return "UPDATE {} SET crashcount=NULL".format(CARTO_INTERSECTIONS_TABLE)
+
+
 def update_intersections_crashcount():
     """
     Update the nyc_intersections table crashcount field, the number of crashes found within that circle
     in the last M months, which did have at least 1 fatality or injury.
-    We can't do this in one query, due to CARTO's 15-second timeout, but we can do X queries to every Xth record, using modulus % operator.
     """
 
-    logger.info('Intersections crashcount reset')
-    make_carto_sql_api_request("UPDATE {0} SET crashcount=NULL".format(CARTO_INTERSECTIONS_TABLE))
-
     sincewhen = get_date_monthsago_from_carto(INTERSECTIONS_CRASHCOUNT_MONTHS)
+    logger.info('Intersections crashcount dated {}'.format(sincewhen))
 
-    howmanyblocks = 10
-    for thisblock in range(0, howmanyblocks):
-        logger.info('Intersections crashcount dated {2}: {0}/{1}'.format(thisblock+1, howmanyblocks, sincewhen))
-        sql = """
+    sql = """
         WITH counts AS (
             SELECT {0}.the_geom, {0}.cartodb_id, COUNT(*) AS howmany
             FROM {1}
             JOIN {0} ON
                 ST_CONTAINS({0}.the_geom,{1}.the_geom)
-                AND {1}.date_val >= '{4}'
+                AND {1}.date_val >= '{2}'
                 AND ({1}.number_of_persons_injured > 0 OR {1}.number_of_persons_killed > 0)
-                AND {0}.cartodb_id % {3} = {2}
             GROUP BY {0}.cartodb_id
         )
         UPDATE {0}
         SET crashcount = counts.howmany
         FROM counts
         WHERE {0}.cartodb_id = counts.cartodb_id
-        """.format(CARTO_INTERSECTIONS_TABLE, CARTO_CRASHES_TABLE, thisblock, howmanyblocks, sincewhen)
-        make_carto_sql_api_request(sql)
-        time.sleep(5)
+    """.format(
+        CARTO_INTERSECTIONS_TABLE,
+        CARTO_CRASHES_TABLE,
+        sincewhen
+    )
+
+    return sql
 
 
 def update_carto_table(vals):
@@ -710,101 +731,88 @@ def find_updated_killcounts():
     logger.info('Done updating records')
 
 
-def main():
-    # get the most recent data from New York's data endpoint, and load it
-    get_soda_data()
+def update_hasvehicle(vehicleboolfieldfieldname, standardizedalias):
+    """
+    SQL query to update hasvehicle_XXX fields
+    checking the crash table's vehicle_type[] array
+    against a set of defined aliases from vehicletype_crosswalk_prod
+    """
 
-    # filter out any poorly geocoded data afterward (e.g. null island)
+    # for performance, we update where it is null so basically only new records
+    # however, it's inevitable that new "aliases" will be added since it's free-form text, e.g. "tesla 5" or "morotcycel"
+    # and now and then you may need to run this without the IS NULL clause so as to bulk-update ALL records
+    sql = '''
+    UPDATE {}
+    SET hasvehicle_{} = vehicle_type && (SELECT ARRAY_AGG(nyc_vehicletype) FROM vehicletype_crosswalk_prod WHERE crashmapper_vehicletype = '{}')
+    WHERE hasvehicle_{} IS NULL
+    '''.format(
+        CARTO_CRASHES_TABLE,
+        vehicleboolfieldfieldname,
+        standardizedalias,
+        vehicleboolfieldfieldname
+    )
+    return sql
+
+
+def update_analyzeindex():
+    logger.info('update_analyzeindex()')
+    return 'VACUUM FULL {}'.format(CARTO_CRASHES_TABLE)
+
+
+def main():
+    # some longer-running and non-sequential updates are launched via the Batch Query API
+    # the log will show the returned Job IDs for each batch
+    # job status/failure messages may be queried via cURL or similar, e.g.
+    # curl -X GET "https://chekpeds.carto.com/api/v2/sql/job/JOBID?api_key=MASTERKEY"
+
+    # the main data loading of crash data from Socrata to CARTO
+    # get the most recent data from New York's data endpoint, and load it
+    # then, filter out any poorly geocoded data afterward (e.g. null island)
+    get_soda_data()
     make_carto_sql_api_request(filter_carto_data())
 
-    # update the borough, city councily, nypd precinct, ...
-    # these are done in blocks cuz we only ave a few seconds before the CARTO API hangs up on us
-    # for Senate and Assembly the query planner won't use indexes properly, so they take 10X longer than the others
-    # but the others (Borough, City Council, etc) can still exceed the time limit if we have a ton of changes, e.g. after a 2-month hiatus
-
-    make_carto_sql_api_request(update_borough(1))
-    make_carto_sql_api_request(update_borough(2))
-    make_carto_sql_api_request(update_borough(3))
-    make_carto_sql_api_request(update_borough(4))
-    make_carto_sql_api_request(update_borough(5))
-    make_carto_sql_api_request(update_borough(6))
-    make_carto_sql_api_request(update_borough(7))
-    make_carto_sql_api_request(update_borough(8))
-    make_carto_sql_api_request(update_borough(9))
-    make_carto_sql_api_request(update_borough(0))
-
-    make_carto_sql_api_request(update_city_council(1))
-    make_carto_sql_api_request(update_city_council(2))
-    make_carto_sql_api_request(update_city_council(3))
-    make_carto_sql_api_request(update_city_council(4))
-    make_carto_sql_api_request(update_city_council(5))
-    make_carto_sql_api_request(update_city_council(6))
-    make_carto_sql_api_request(update_city_council(7))
-    make_carto_sql_api_request(update_city_council(8))
-    make_carto_sql_api_request(update_city_council(9))
-    make_carto_sql_api_request(update_city_council(0))
-
-    make_carto_sql_api_request(update_nypd_precinct(1))
-    make_carto_sql_api_request(update_nypd_precinct(2))
-    make_carto_sql_api_request(update_nypd_precinct(3))
-    make_carto_sql_api_request(update_nypd_precinct(4))
-    make_carto_sql_api_request(update_nypd_precinct(5))
-    make_carto_sql_api_request(update_nypd_precinct(6))
-    make_carto_sql_api_request(update_nypd_precinct(7))
-    make_carto_sql_api_request(update_nypd_precinct(8))
-    make_carto_sql_api_request(update_nypd_precinct(9))
-    make_carto_sql_api_request(update_nypd_precinct(0))
-
-    make_carto_sql_api_request(update_community_board(1))
-    make_carto_sql_api_request(update_community_board(2))
-    make_carto_sql_api_request(update_community_board(3))
-    make_carto_sql_api_request(update_community_board(4))
-    make_carto_sql_api_request(update_community_board(5))
-    make_carto_sql_api_request(update_community_board(6))
-    make_carto_sql_api_request(update_community_board(7))
-    make_carto_sql_api_request(update_community_board(8))
-    make_carto_sql_api_request(update_community_board(9))
-    make_carto_sql_api_request(update_community_board(0))
-
-    make_carto_sql_api_request(update_neighborhood(1))
-    make_carto_sql_api_request(update_neighborhood(2))
-    make_carto_sql_api_request(update_neighborhood(3))
-    make_carto_sql_api_request(update_neighborhood(4))
-    make_carto_sql_api_request(update_neighborhood(5))
-    make_carto_sql_api_request(update_neighborhood(6))
-    make_carto_sql_api_request(update_neighborhood(7))
-    make_carto_sql_api_request(update_neighborhood(8))
-    make_carto_sql_api_request(update_neighborhood(9))
-    make_carto_sql_api_request(update_neighborhood(0))
-
-    make_carto_sql_api_request(update_assembly(1))
-    make_carto_sql_api_request(update_assembly(2))
-    make_carto_sql_api_request(update_assembly(3))
-    make_carto_sql_api_request(update_assembly(4))
-    make_carto_sql_api_request(update_assembly(5))
-    make_carto_sql_api_request(update_assembly(6))
-    make_carto_sql_api_request(update_assembly(7))
-    make_carto_sql_api_request(update_assembly(8))
-    make_carto_sql_api_request(update_assembly(9))
-    make_carto_sql_api_request(update_assembly(0))
-
-    make_carto_sql_api_request(update_senate(1))
-    make_carto_sql_api_request(update_senate(2))
-    make_carto_sql_api_request(update_senate(3))
-    make_carto_sql_api_request(update_senate(4))
-    make_carto_sql_api_request(update_senate(5))
-    make_carto_sql_api_request(update_senate(6))
-    make_carto_sql_api_request(update_senate(7))
-    make_carto_sql_api_request(update_senate(8))
-    make_carto_sql_api_request(update_senate(9))
-    make_carto_sql_api_request(update_senate(0))
-
-    # update the nyc_intersections crashcount field
-    # giving a rough idea of the most crashy intersections citywide
-    update_intersections_crashcount()
-
-    # look for records that have been updated recently, as their injury/killed counts may have changed
+    # a quirk we didn't discover for some time: records may be retroactively updated
+    # and their injury/killed counts may have changed, e.g. a injury later reported, or an injury that was later fatal
     find_updated_killcounts()
+
+    # update the nyc_intersections crashcount field, giving a rough idea of the most crashy intersections citywide
+    # this can be done via batch, as it doesn't need to be specifically sequenced like the steps above
+    start_carto_batchjob([
+        clear_intersections_crashcount(),
+        update_intersections_crashcount(),
+    ])
+
+    # update the borough, city councily, nypd precinct, and other such containing zones, for query filtering
+    # these don't need to follow a specific sequence nor to be done immediately, so use the Batch Query API
+    logger.info('update_places() series launching')
+    start_carto_batchjob([
+        update_borough(),
+        update_city_council(),
+        update_nypd_precinct(),
+        update_community_board(),
+        update_neighborhood(),
+        update_assembly(),
+        update_senate(),
+    ])
+
+    logger.info('update_hasvehicle() series launching')
+    start_carto_batchjob([
+        update_hasvehicle('scooter', 'E-BIKE-SCOOT'),
+        update_hasvehicle('suv', 'SUV'),
+        update_hasvehicle('car', 'CAR'),
+        update_hasvehicle('other', 'OTHER'),
+        update_hasvehicle('truck', 'TRUCK'),
+        update_hasvehicle('motorcycle', 'MOTORCYCLE-MOPED'),
+        update_hasvehicle('bicycle', 'BICYCLE'),
+        update_hasvehicle('busvan', 'BUS-VAN'),
+    ])
+
+    # a final cleanup/repacking of the table
+    # because those updates can bloat the table and falsely hit our storage quota
+    # particularly if we've done a larger update e.g. hasvehicle without NOT NULL, or a "backlog" run
+    start_carto_batchjob([
+        update_analyzeindex(),
+    ])
 
 
 if __name__ == '__main__':
@@ -812,3 +820,4 @@ if __name__ == '__main__':
         logger.info("No CARTO_API_KEY defined in environment")
         sys.exit(1)
     main()
+    logger.info('ALL DONE')
