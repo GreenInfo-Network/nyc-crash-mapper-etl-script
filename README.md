@@ -62,3 +62,9 @@ Then provision the Heroku Scheduler, and add a job simply with the following com
 ```
 python main.py
 ```
+
+To deploy the site to Heroku for running, push the code to the new remote that you added with `heroku git:remote` above:
+
+```
+git push heroku master
+```
