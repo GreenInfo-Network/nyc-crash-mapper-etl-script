@@ -11,6 +11,7 @@ import logging
 import sys
 import os
 import time
+import re
 
 
 CARTO_USER_NAME = 'chekpeds'
@@ -138,8 +139,10 @@ def format_string_for_postgres_array(values, field_name):
             field_name_full = "{0}{1}".format(field_name, i)
 
         if field_name_full in values:
-            thisvalue = values[field_name_full].replace("'", "")
-            tmp_list.append("'{0}'".format(thisvalue))
+            for thisvalue in re.split(r'\s*,\s*', values[field_name_full]):  # comma split, strip spaces, skip blanks
+                toinsert = thisvalue.replace("'", "").strip()
+                if toinsert:
+                    tmp_list.append("'{0}'".format(toinsert))
 
     return "ARRAY[%s]::text[]" % ','.join(tmp_list)
 
