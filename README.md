@@ -20,7 +20,7 @@ alias pip='/c/Python27/ArcGIS10.5/Scripts/pip.exe'
 
 ## Setup
 
-Requires a `.env` file with the following. Look up the values from the Heroku panel and copy them in.
+Set the following environment variabes in your shell. Look up the values from the Heroku panel and copy them in.
 
 ```
 export CARTO_API_KEY='<redacted>'
@@ -28,6 +28,8 @@ export CARTO_MASTER_KEY='<redacted>'
 export SOCRATA_APP_TOKEN_SECRET='<redacted>'
 export SOCRATA_APP_TOKEN_PUBLIC='<redacted>'
 ```
+
+You may find it useful to create a fil called `.env` which contais these commands, then to use `source .env` to load those variables into your shell.
 
 Install Python requirements:
 
