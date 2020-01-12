@@ -12,6 +12,8 @@ import sys
 import os
 import time
 import re
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 
 CARTO_USER_NAME = 'chekpeds'
@@ -22,7 +24,6 @@ CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 CARTO_BATCH_API_BASEURL = 'https://%s.carto.com/api/v2/sql/job' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/h9gi-nx95.json'
-SOCRATA_APP_TOKEN_SECRET = os.environ['SOCRATA_APP_TOKEN_SECRET'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_SECRET
 SOCRATA_APP_TOKEN_PUBLIC = os.environ['SOCRATA_APP_TOKEN_PUBLIC'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_PUBLIC
 
 FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA, look back how many months?
@@ -36,6 +37,20 @@ logging.basicConfig(
     datefmt='%I:%M:%S %p')
 logger = logging.getLogger()
 
+def send_email_notification(subject_str, message_str):
+    """
+    Send email notification when some error happens
+    """
+    message = Mail(
+        from_email = os.environ.get('SENDGRID_USERNAME'),
+        to_emails = os.environ.get('SENDGRID_TO_EMAIL'),
+        subject = 'CARTO message Alert %s' % subject_str,
+        html_content = message_str)
+    try:
+        sg = SendGridAPIClient(os.environ.get('SENDGRID_API_KEY'))
+        response = sg.send(message)
+    except Exception as e:
+        logger.error(e.message)
 
 def get_date_monthsago_from_carto(monthsago):
     """
@@ -79,19 +94,19 @@ def get_soda_data():
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
         ).json()
-    except requests.exceptions.RequestException as e:
-        logger.error(e.message)
-        sys.exit(1)
-
-    if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
-        logger.info('Got {0} SODA entries OK'.format(len(crashdata)))
-        # logger.info(json.dumps(crashdata))
-    elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
-        logger.error(crashdata['message'])
-        sys.exit(1)
-    else:  # no data?
-        logger.info('No data returned from Socrata, exiting.')
-        sys.exit()
+        
+        if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
+            logger.info('Got {0} SODA entries OK'.format(len(crashdata)))
+        elif isinstance(crashdata, dict):  # and crashdata['error'] error in SODA API call 
+            logger.error(crashdata['message'])
+            raise Exception("No data returned from SODA API")
+        else:  # no data?
+            logger.info('No data returned from SODA API, exiting.')
+            sys.exit()
+        
+    except Exception as e:
+        logger.info(e)
+        raise Exception("No data error from SODA API " + str(crashdata['message']) + " Exception detail " + str(e))
 
     logger.info('Getting socrata_id list from CARTO as of {0}'.format(sincewhen))
     try:
@@ -763,60 +778,64 @@ def update_analyzeindex():
 
 
 def main():
-    # some longer-running and non-sequential updates are launched via the Batch Query API
-    # the log will show the returned Job IDs for each batch
-    # job status/failure messages may be queried via cURL or similar, e.g.
-    # curl -X GET "https://chekpeds.carto.com/api/v2/sql/job/JOBID?api_key=MASTERKEY"
+    try:
+        # some longer-running and non-sequential updates are launched via the Batch Query API
+        # the log will show the returned Job IDs for each batch
+        # job status/failure messages may be queried via cURL or similar, e.g.
+        # curl -X GET "https://chekpeds.carto.com/api/v2/sql/job/JOBID?api_key=MASTERKEY"
 
-    # the main data loading of crash data from Socrata to CARTO
-    # get the most recent data from New York's data endpoint, and load it
-    # then, filter out any poorly geocoded data afterward (e.g. null island)
-    get_soda_data()
-    make_carto_sql_api_request(filter_carto_data())
+        # the main data loading of crash data from Socrata to CARTO
+        # get the most recent data from New York's data endpoint, and load it
+        # then, filter out any poorly geocoded data afterward (e.g. null island)
+        get_soda_data()
+        make_carto_sql_api_request(filter_carto_data())
 
-    # a quirk we didn't discover for some time: records may be retroactively updated
-    # and their injury/killed counts may have changed, e.g. a injury later reported, or an injury that was later fatal
-    find_updated_killcounts()
+        # a quirk we didn't discover for some time: records may be retroactively updated
+        # and their injury/killed counts may have changed, e.g. a injury later reported, or an injury that was later fatal
+        find_updated_killcounts()
 
-    # update the nyc_intersections crashcount field, giving a rough idea of the most crashy intersections citywide
-    # this can be done via batch, as it doesn't need to be specifically sequenced like the steps above
-    start_carto_batchjob([
-        clear_intersections_crashcount(),
-        update_intersections_crashcount(),
-    ])
+        # update the nyc_intersections crashcount field, giving a rough idea of the most crashy intersections citywide
+        # this can be done via batch, as it doesn't need to be specifically sequenced like the steps above
+        start_carto_batchjob([
+            clear_intersections_crashcount(),
+            update_intersections_crashcount(),
+        ])
 
-    # update the borough, city councily, nypd precinct, and other such containing zones, for query filtering
-    # these don't need to follow a specific sequence nor to be done immediately, so use the Batch Query API
-    logger.info('update_places() series launching')
-    start_carto_batchjob([
-        update_borough(),
-        update_city_council(),
-        update_nypd_precinct(),
-        update_community_board(),
-        update_neighborhood(),
-        update_assembly(),
-        update_senate(),
-    ])
+        # update the borough, city councily, nypd precinct, and other such containing zones, for query filtering
+        # these don't need to follow a specific sequence nor to be done immediately, so use the Batch Query API
+        logger.info('update_places() series launching')
+        start_carto_batchjob([
+            update_borough(),
+            update_city_council(),
+            update_nypd_precinct(),
+            update_community_board(),
+            update_neighborhood(),
+            update_assembly(),
+            update_senate(),
+        ])
 
-    logger.info('update_hasvehicle() series launching')
-    start_carto_batchjob([
-        update_hasvehicle('scooter', 'E-BIKE-SCOOT'),
-        update_hasvehicle('suv', 'SUV'),
-        update_hasvehicle('car', 'CAR'),
-        update_hasvehicle('other', 'OTHER'),
-        update_hasvehicle('truck', 'TRUCK'),
-        update_hasvehicle('motorcycle', 'MOTORCYCLE-MOPED'),
-        update_hasvehicle('bicycle', 'BICYCLE'),
-        update_hasvehicle('busvan', 'BUS-VAN'),
-    ])
+        logger.info('update_hasvehicle() series launching')
+        start_carto_batchjob([
+            update_hasvehicle('scooter', 'E-BIKE-SCOOT'),
+            update_hasvehicle('suv', 'SUV'),
+            update_hasvehicle('car', 'CAR'),
+            update_hasvehicle('other', 'OTHER'),
+            update_hasvehicle('truck', 'TRUCK'),
+            update_hasvehicle('motorcycle', 'MOTORCYCLE-MOPED'),
+            update_hasvehicle('bicycle', 'BICYCLE'),
+            update_hasvehicle('busvan', 'BUS-VAN'),
+        ])
 
-    # a final cleanup/repacking of the table
-    # because those updates can bloat the table and falsely hit our storage quota
-    # particularly if we've done a larger update e.g. hasvehicle without NOT NULL, or a "backlog" run
-    start_carto_batchjob([
-        update_analyzeindex(),
-    ])
+        # a final cleanup/repacking of the table
+        # because those updates can bloat the table and falsely hit our storage quota
+        # particularly if we've done a larger update e.g. hasvehicle without NOT NULL, or a "backlog" run
+        start_carto_batchjob([
+            update_analyzeindex(),
+        ])
 
+    except Exception as e:
+        logger.info(e)
+        send_email_notification("Script failed check error log for detail", "Script failed " + str(e))
 
 if __name__ == '__main__':
     if not CARTO_API_KEY:
