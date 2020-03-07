@@ -27,6 +27,9 @@ export CARTO_API_KEY='<redacted>'
 export CARTO_MASTER_KEY='<redacted>'
 export SOCRATA_APP_TOKEN_SECRET='<redacted>'
 export SOCRATA_APP_TOKEN_PUBLIC='<redacted>'
+export SENDGRID_API_KEY='<redacted>'
+export SENDGRID_USERNAME='<redacted>'
+export SENDGRID_TO_EMAIL="<redacted>"
 ```
 
 You may find it useful to create a fil called `.env` which contais these commands, then to use `source .env` to load those variables into your shell.
@@ -57,6 +60,9 @@ heroku config:set CARTO_API_KEY=<redacted>
 heroku config:set CARTO_MASTER_KEY=<redacted>
 heroku config:set SOCRATA_APP_TOKEN_SECRET=<redacted>
 heroku config:set SOCRATA_APP_TOKEN_PUBLIC=<redacted>
+heroku config:set SENDGRID_API_KEY='<redacted>'
+heroku config:set SENDGRID_USERNAME='<redacted>'
+heroku config:set SENDGRID_TO_EMAIL="<redacted>"
 ```
 
 Then provision the Heroku Scheduler, and add a job simply with the following command:
