@@ -20,7 +20,7 @@ alias pip='/c/Python27/ArcGIS10.5/Scripts/pip.exe'
 
 ## Setup
 
-Set the following environment variabes in your shell. Look up the values from the Heroku panel and copy them in.
+Set the following environment variabes in your shell. Copy in the values from the Heroku panel, or from `heroku config -a nyc-crash-mapper-etl` if you use the Heroku CLI.
 
 ```
 export CARTO_API_KEY='<redacted>'
@@ -32,7 +32,7 @@ export SENDGRID_USERNAME='<redacted>'
 export SENDGRID_TO_EMAIL="<redacted>"
 ```
 
-You may find it useful to create a fil called `.env` which contais these commands, then to use `source .env` to load those variables into your shell.
+You may find it useful to create a file called `.env` which contais these commands, then to use `source .env` to load those variables into your shell.
 
 Install Python requirements:
 
@@ -52,7 +52,7 @@ python main.py
 
 ## Running via a Heroku Scheduler
 
-To run on Heroku, fill in the values and send them to Heroku via:
+To run on Heroku, fill in the values and send them to Heroku via commands such as these. Include all of the variables in that environment variable list described above.
 
 ```
 heroku git:remote -a nyc-crash-mapper-etl
@@ -71,7 +71,12 @@ Then provision the Heroku Scheduler, and add a job simply with the following com
 python main.py
 ```
 
-To deploy the site to Heroku for running, push the code to the new remote that you added with `heroku git:remote` above:
+
+## Deploying the Scheduled Task
+
+After making changes to the script, you will want to push these changes to Heroku scheduler so the script is used the next day.
+
+To deploy the site to the Heroku scheduler, push the code to the new remote that you added with `heroku git:remote` above:
 
 ```
 git push heroku master

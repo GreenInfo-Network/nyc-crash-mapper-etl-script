@@ -37,6 +37,7 @@ logging.basicConfig(
     datefmt='%I:%M:%S %p')
 logger = logging.getLogger()
 
+
 def send_email_notification(subject_str, message_str):
     """
     Send email notification when some error happens
@@ -51,6 +52,7 @@ def send_email_notification(subject_str, message_str):
         response = sg.send(message)
     except Exception as e:
         logger.error(e.message)
+
 
 def get_date_monthsago_from_carto(monthsago):
     """
@@ -303,7 +305,6 @@ def create_sql_insert(vals):
     each row being inserted.
     @param {vals} list of strings
     """
-    logger.info('Creating CARTO SQL insert for {0} new rows'.format(len(vals)))
 
     # field names for the crashes table which get values inserted into them
     column_names_string = '''
@@ -546,11 +547,42 @@ def start_carto_batchjob(querylist):
 
     try:
         r = requests.post(url, json=jsonbody)
-        jobid = r.json()['job_id']
+        jobinfo = r.json()
+        if 'error' in jobinfo and jobinfo['error']:
+            raise requests.exceptions.RequestException(jobinfo['error'])
+        jobid = jobinfo['job_id']
         logger.info('CARTO Batch Job ID: {}'.format(jobid))
+        return jobid
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
         sys.exit(1)
+
+
+def wait_carto_batchjob(jobid):
+    # loop and wait, blocking until the batch job has completed
+    url = "{}/{}?api_key={}".format(CARTO_BATCH_API_BASEURL, jobid, CARTO_MASTER_KEY)
+    logger.info("Waiting for batch job {} to complete".format(jobid))
+
+    while True:
+        time.sleep(10)
+
+        jobstatus = requests.get(url, verify=False).json()  # requests hates the SSL certificate, but it IS valid
+        logger.info("Status of batch job {} is {}".format(jobid, jobstatus['status']))
+
+        if jobstatus['status'] == 'running' or jobstatus['status'] == 'pending':  # still running, give it another sleep-loop
+            continue
+        elif jobstatus['status'] == 'done':  # yay! break which will implicitly return
+            break
+        elif jobstatus['status'] == 'failed':  # failed, throw a fit and exit
+            errmessage = "Batch job {} failed: {}".format(jobid, jobstatus['failed_reason'])
+            logger.error(errmessage)
+            sys.exit(1)
+        else:  # unexpected condition, throw a fit
+            errmessage = "Batch job {} exited with unknown status: {}".format(jobid, jobstatus['status'])
+            logger.error(errmessage)
+            sys.exit(1)
+
+    return jobstatus['status']  # should only return "done" since other conditions exit() here
 
 
 def clear_intersections_crashcount():
@@ -590,15 +622,28 @@ def update_intersections_crashcount():
     return sql
 
 
-def update_carto_table(vals):
+def update_carto_table(crashrecords):
     """
     Updates the master crashes table on CARTO.
+    We need to do this in chunks because CARTO keeps lowering their query timeouts,
+    and we can't even handle a single day's crash records (500+ per day) in a single query anymore.
     """
-    # insert the new data
-    if not len(vals):
+    if not len(crashrecords):
         logger.info('No rows to insert; moving on')
         return
-    make_carto_sql_api_request(create_sql_insert(vals))
+
+    crashesperslice = 100
+    for crashslice in array_split(crashrecords, crashesperslice):
+        logger.info("Insert chunk of up to {} crash records".format(crashesperslice))
+        sql = create_sql_insert(crashslice)
+        make_carto_sql_api_request(sql)
+
+
+def array_split(inputlist, itemsperchunk):
+    # break an array into chunks of X elements apiece
+    # https://www.geeksforgeeks.org/break-list-chunks-size-n-python/
+    chunks = [inputlist[i * itemsperchunk:(i + 1) * itemsperchunk] for i in range((len(inputlist) + itemsperchunk - 1) // itemsperchunk )]  
+    return chunks
 
 
 def find_updated_killcounts():
@@ -832,7 +877,6 @@ def main():
         start_carto_batchjob([
             update_analyzeindex(),
         ])
-
     except Exception as e:
         logger.info(e)
         send_email_notification("Script failed check error log for detail", "Script failed " + str(e))
