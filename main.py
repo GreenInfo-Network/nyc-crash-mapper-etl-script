@@ -93,8 +93,7 @@ def get_soda_data():
                 '$order': 'crash_date DESC',
                 '$limit': '50000',
                 '$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
-            },
-            verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
+            }
         ).json()
         
         if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
@@ -566,7 +565,7 @@ def wait_carto_batchjob(jobid):
     while True:
         time.sleep(10)
 
-        jobstatus = requests.get(url, verify=False).json()  # requests hates the SSL certificate, but it IS valid
+        jobstatus = requests.get(url).json()
         logger.info("Status of batch job {} is {}".format(jobid, jobstatus['status']))
 
         if jobstatus['status'] == 'running' or jobstatus['status'] == 'pending':  # still running, give it another sleep-loop
@@ -666,8 +665,7 @@ def find_updated_killcounts():
                 '$select': ':*,*',
                 '$where': ":updated_at >= '%s'" % sincewhen.strftime('%Y-%m-%d'),
                 '$limit': '50000'
-            },
-            verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
+            }
         ).json()
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
@@ -694,7 +692,7 @@ def find_updated_killcounts():
         'number_of_pedestrians_killed', 'number_of_pedestrians_injured',
         'number_of_persons_killed', 'number_of_persons_injured',
     )
-    for crashid in sodacrashrecords.keys():
+    for crashid,crash in sodacrashrecords.items():
         # Nov 2018, a few rare records (4022160, 4051650) lacks number_of_persons_X fields, which is a fatal error if we let it go
         if 'number_of_persons_killed' not in sodacrashrecords[crashid]:
             sodacrashrecords[crashid]['number_of_persons_killed'] = int(sodacrashrecords[crashid]['number_of_motorist_killed']) + int(sodacrashrecords[crashid]['number_of_cyclist_killed']) + int(sodacrashrecords[crashid]['number_of_pedestrians_killed'])
@@ -708,11 +706,12 @@ def find_updated_killcounts():
     # length of the above is on the order of 50 updates per week or 225 per month,
     # EXCEPT in weird cases (issue 17) where there's a massive update like 1200 records in 2018-08-22 through 2018-08-25
     # so, we do them in chunks of 200 and there will USUALLY be only one such chunk
+    allcrashids = list(sodacrashrecords.keys())
     chunkstart = 0
     howmanyperchunk = 200
     while True:
         chunkend = chunkstart + howmanyperchunk
-        thesecrashes = sodacrashrecords.keys()[chunkstart:chunkend]
+        thesecrashes = allcrashids[chunkstart:chunkend]
         crashidlist = ",".join([ str(crash) for crash in thesecrashes ])
         if not crashidlist:
             break
@@ -841,6 +840,7 @@ def main():
 
         # update the nyc_intersections crashcount field, giving a rough idea of the most crashy intersections citywide
         # this can be done via batch, as it doesn't need to be specifically sequenced like the steps above
+        logger.info('update_intersections() series launching')
         start_carto_batchjob([
             clear_intersections_crashcount(),
             update_intersections_crashcount(),
@@ -877,7 +877,8 @@ def main():
         start_carto_batchjob([
             update_analyzeindex(),
         ])
-    except Exception as e:
+    #GDA#except Exception as e:
+    except OSError as e:
         logger.info(e)
         send_email_notification("Script failed check error log for detail", "Script failed " + str(e))
 
