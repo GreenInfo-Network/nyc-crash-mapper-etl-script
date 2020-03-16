@@ -557,6 +557,13 @@ def start_carto_batchjob(querylist):
         sys.exit(1)
 
 
+def status_carto_batchjob(jobid):
+    # simply fetch and return the status of a CartoDB batch job
+    url = "{}/{}?api_key={}".format(CARTO_BATCH_API_BASEURL, jobid, CARTO_MASTER_KEY)
+    jobstatus = requests.get(url).json()
+    return jobstatus['status']
+
+
 def wait_carto_batchjob(jobid):
     # loop and wait, blocking until the batch job has completed
     url = "{}/{}?api_key={}".format(CARTO_BATCH_API_BASEURL, jobid, CARTO_MASTER_KEY)
@@ -621,6 +628,149 @@ def update_intersections_crashcount():
     return sql
 
 
+def update_blame_allocations():
+    """
+    Dan's formulas for allocating blame for fatalities & injuries
+    These form a series of long-running queries which should be executed via batch mode
+    * define crashes with no known vehicle types, and those with only bikes & scoters to take the blame
+    * multiply blame coefficient * injury/fatality count to get number to blame per mode
+    * assign the per mode injury/fatality blames, usually all-or-nothing
+    """
+    return [
+        """
+        UPDATE {0}
+            --set other to TRUE if nothing else is selected, which catches crashes with no vtype data
+            SET hasvehicle_other_unspecified = 
+            CASE
+                WHEN 
+                    (hasvehicle_bicycle::int + hasvehicle_motorcycle::int + hasvehicle_scooter::int + hasvehicle_busvan::int + hasvehicle_car::int + hasvehicle_suv::int + hasvehicle_truck::int + hasvehicle_other::int = 0)
+                THEN 
+                    TRUE
+                ELSE hasvehicle_other 
+            END,
+            -- Determine if this record will "blame" bikes or scooters for injuries or deaths, only in cases with no other motor vehicles
+            bike_blame = 
+            CASE
+                WHEN
+                    (hasvehicle_bicycle OR hasvehicle_scooter) AND (hasvehicle_motorcycle::int + hasvehicle_busvan::int + hasvehicle_car::int + hasvehicle_suv::int + hasvehicle_truck::int + hasvehicle_other::int = 0)
+                THEN
+                    TRUE
+                ELSE
+                    FALSE
+            END,
+            --determine the number of blameable vehicles involved and then turn to percentage blame. Run as suqquery to it can be used for math
+            blame_factor = 
+            CASE
+                WHEN
+                    (hasvehicle_bicycle OR hasvehicle_scooter) AND (hasvehicle_motorcycle::int + hasvehicle_busvan::int + hasvehicle_car::int + hasvehicle_suv::int + hasvehicle_truck::int + hasvehicle_other::int = 0)
+                THEN
+                    (1 / CAST (NULLIF((hasvehicle_bicycle::int + hasvehicle_scooter::int),0) as FLOAT))
+                ELSE
+                    (1 / CAST (
+                            NULLIF(
+                                (hasvehicle_motorcycle::int + hasvehicle_busvan::int + hasvehicle_car::int + hasvehicle_suv::int + hasvehicle_truck::int + hasvehicle_other::int)
+                                + 
+                                (CASE 
+                                    WHEN (hasvehicle_bicycle::int + hasvehicle_motorcycle::int + hasvehicle_scooter::int + hasvehicle_busvan::int + hasvehicle_car::int + hasvehicle_suv::int + hasvehicle_truck::int + hasvehicle_other::int = 0) 
+                                    THEN 
+                                        1 
+                                    ELSE 
+                                    0 END
+                                ),0) as FLOAT))
+            END
+        WHERE hasvehicle_other_unspecified IS NULL
+        """.format(CARTO_CRASHES_TABLE),
+        """
+        UPDATE {0} SET
+            cyclist_injured_allocated = (blame_factor * number_of_cyclist_injured),
+            cyclist_killed_allocated = (blame_factor * number_of_cyclist_killed),
+            motorist_injured_allocated = (blame_factor * number_of_motorist_injured),
+            motorist_killed_allocated = (blame_factor * number_of_motorist_killed),
+            pedestrian_injured_allocated = (blame_factor * number_of_pedestrian_injured),
+            pedestrian_killed_allocated = (blame_factor * number_of_pedestrian_killed),
+            persons_injured_allocated = (blame_factor * (number_of_pedestrian_injured + number_of_cyclist_injured + number_of_motorist_injured) ),
+            persons_killed_allocated = (blame_factor * (number_of_pedestrian_killed + number_of_cyclist_killed + number_of_motorist_killed))
+        WHERE persons_injured_allocated IS NULL
+        """.format(CARTO_CRASHES_TABLE),
+        """
+        UPDATE {0} SET
+            --hasvehicle_bicycle
+            cyclist_injured_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bybike = CASE WHEN (bike_blame is TRUE AND hasvehicle_bicycle is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_scooter
+            cyclist_injured_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_byscooter = CASE WHEN (bike_blame is TRUE AND hasvehicle_scooter is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_motorcycle
+            cyclist_injured_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bymotorcycle = CASE WHEN (hasvehicle_motorcycle is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_busvan
+            cyclist_injured_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bybusvan = CASE WHEN (hasvehicle_busvan is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_car
+            cyclist_injured_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bycar = CASE WHEN (hasvehicle_car is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_suv
+            cyclist_injured_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bysuv = CASE WHEN (hasvehicle_suv is TRUE) THEN persons_killed_allocated ELSE 0 END,
+            --hasvehicle_truck
+            cyclist_injured_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_bytruck = CASE WHEN (hasvehicle_truck is TRUE) THEN persons_killed_allocated ELSE 0 END,    
+            --hasvehicle_other_unspecified
+            cyclist_injured_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN cyclist_injured_allocated ELSE 0 END,
+            cyclist_killed_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN cyclist_killed_allocated ELSE 0 END,
+            motorist_injured_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN motorist_injured_allocated ELSE 0 END,
+            motorist_killed_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN motorist_killed_allocated ELSE 0 END,
+            pedestrian_injured_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN pedestrian_injured_allocated ELSE 0 END,
+            pedestrian_killed_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN pedestrian_killed_allocated ELSE 0 END,
+            persons_injured_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN persons_injured_allocated ELSE 0 END,
+            persons_killed_byother = CASE WHEN (hasvehicle_other_unspecified is TRUE) THEN persons_killed_allocated ELSE 0 END
+        WHERE cyclist_injured_bycar IS NULL
+        """.format(CARTO_CRASHES_TABLE),
+    ]
+
+
 def update_carto_table(crashrecords):
     """
     Updates the master crashes table on CARTO.
@@ -647,9 +797,9 @@ def array_split(inputlist, itemsperchunk):
 
 def find_updated_killcounts():
     """
-    Issue 12 and 13: a crash can be changed later when an injury turns out to be fatal, sometimes weeks later.
-    Look for recently-updated records where their injury & killed counts are now different from CARTO
-    Then update the CARTO copy so we have the latest
+    Issue 12 and 13: a crash can be changed later when an injury turns out to be fatal, sometimes several 2-3 months later.
+    Look for recently-updated records where their injury & killed counts are now different from CARTO.
+    Then update the CARTO copy with the new injury & fatality counts.
     """
     # fetch the SODA records updated since X days ago, where the update-date is NOT the same as the created-date
     # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
@@ -770,11 +920,14 @@ def find_updated_killcounts():
             logger.info('        TO   T={sti}i/{stk}k P={spi}i/{spk}k C={sci}i/{sck}k M={smi}i/{smk}k'.format(
                 stk=stk, sti=sti, spk=spk, spi=spi, smk=smk, smi=smi, sck=sck, sci=sci
             ))
+
+            # don't forget to NULL out fields used by update_blame_allocations() so the blame counts will be recalculated
             sql = """UPDATE {table} SET 
                     number_of_motorist_killed={smk}, number_of_motorist_injured={smi},
                     number_of_cyclist_killed={sck}, number_of_cyclist_injured={sci},
                     number_of_pedestrian_killed={spk}, number_of_pedestrian_injured={spi},
-                    number_of_persons_killed={stk}, number_of_persons_injured={sti}
+                    number_of_persons_killed={stk}, number_of_persons_injured={sti},
+                    hasvehicle_other_unspecified=NULL, persons_injured_allocated=NULL, cyclist_injured_bycar=NULL
                     WHERE socrata_id={id}""".format(
                     table=CARTO_CRASHES_TABLE,
                     stk=stk, sti=sti,
@@ -871,14 +1024,18 @@ def main():
             update_hasvehicle('busvan', 'BUS-VAN'),
         ])
 
+        # blame allocations is a series of longer-running queries, so needs to run via batch API
+        # they have "where is null" clauses, so shouldn't take TOO long to run since they're only for a few hundred records at a time
+        # but if you're doing a bulk backlog, it could take 15 minutes for the series
+        start_carto_batchjob(update_blame_allocations())
+
         # a final cleanup/repacking of the table
         # because those updates can bloat the table and falsely hit our storage quota
         # particularly if we've done a larger update e.g. hasvehicle without NOT NULL, or a "backlog" run
         start_carto_batchjob([
             update_analyzeindex(),
         ])
-    #GDA#except Exception as e:
-    except OSError as e:
+    except Exception as e:
         logger.info(e)
         send_email_notification("Script failed check error log for detail", "Script failed " + str(e))
 
