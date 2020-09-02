@@ -781,7 +781,7 @@ def update_carto_table(crashrecords):
         logger.info('No rows to insert; moving on')
         return
 
-    crashesperslice = 100
+    crashesperslice = 50
     for crashslice in array_split(crashrecords, crashesperslice):
         logger.info("Insert chunk of up to {} crash records".format(crashesperslice))
         sql = create_sql_insert(crashslice)
