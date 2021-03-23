@@ -469,6 +469,22 @@ def update_assembly():
     return sql
 
 
+def update_businessdistrict():
+    """
+    SQL query to update the businessdistrict column in the crashes table
+    """
+    logger.info('Cleanup update_businessdistrict()')
+
+    sql = '''
+    UPDATE {0}
+    SET businessdistrict = a.bidistrict
+    FROM nyc_businessdistrict a
+    WHERE {0}.the_geom IS NOT NULL AND ST_Within({0}.the_geom, a.the_geom)
+    AND ({0}.businessdistrict IS NULL)
+    '''.format(CARTO_CRASHES_TABLE)
+    return sql
+
+
 def update_community_board():
     """
     SQL query to update the community_board column in the crashes table
@@ -1010,6 +1026,7 @@ def main():
             update_neighborhood(),
             update_assembly(),
             update_senate(),
+            update_businessdistrict(),
         ])
 
         logger.info('update_hasvehicle() series launching')
