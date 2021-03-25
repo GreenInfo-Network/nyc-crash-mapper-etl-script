@@ -22,12 +22,14 @@ SUMMARY_FIELDS_CARTO = [
     'isSecondTime', "COALESCE(secondTimeSendDate::varchar, '0000-00-00')",
     'isThirdTime', "COALESCE(thirdTimeSendDate::varchar, '0000-00-00')",
     'isCompleted', "COALESCE(completedDate::varchar, '0000-00-00')",
+    'image1', 'image2', 'image3', 'image4', 'image5',  # these come last, see MySQL one for why
 ]
 SUMMARY_FIELDS_MYSQL = [
     "CASE WHEN isFirstTime > 0 THEN 't' ELSE 'f' END", 'DATE(createdAt)',
     "CASE WHEN isSecondTime > 0 THEN 't' ELSE 'f' END", 'DATE(secondTimeSendDate)',
     "CASE WHEN isThirdTime > 0 THEN 't' ELSE 'f' END", 'DATE(thirdTimeSendDate)',
     "CASE WHEN isCompleted > 0 THEN 't' ELSE 'f' END", 'DATE(completedDate)',
+    # image1 image2 image3 image4 image5 - these come last beause they're added in code, sorry!
 ]
 
 # when records are inserted to CARTO we also fill in fields with the names of things they intersect: asembly district number, etc.
@@ -155,6 +157,45 @@ class ObstructionMyqlToCartoLoader:
 
             logger.info("Found {howmany} obstructions in MySQL".format(howmany=len(found_obstructions)))
 
+        # .. but then a second pass to collect photos into the records as image1 through image5
+        # they're using MySQL 5 which doens't support CTEs nor window functions, so we have to do it the long & slow way
+        # populate the 5 imageX fields, then recalculate the summary field
+        for row in found_obstructions:
+            with self.db.cursor() as cursor:
+                row['image1'] = None
+                row['image2'] = None
+                row['image3'] = None
+                row['image4'] = None
+                row['image5'] = None
+
+                sql = """
+                SELECT image FROM obstructionImagesDetails
+                WHERE obstructionId={id}
+                ORDER BY id
+                LIMIT 5
+                """.format(
+                    id = row['id'],
+                )
+                cursor.execute(sql)
+
+                images = cursor.fetchall()
+                if len(images) >= 1:
+                    row['image1'] = images[0]['image']
+                if len(images) >= 2:
+                    row['image2'] = images[1]['image']
+                if len(images) >= 3:
+                    row['image3'] = images[2]['image']
+                if len(images) >= 4:
+                    row['image4'] = images[3]['image']
+                if len(images) >= 5:
+                    row['image6'] = images[4]['image']
+
+                row['summary'] += row['image1'] if row['image1'] else ''
+                row['summary'] += row['image2'] if row['image2'] else ''
+                row['summary'] += row['image3'] if row['image3'] else ''
+                row['summary'] += row['image4'] if row['image4'] else ''
+                row['summary'] += row['image5'] if row['image5'] else ''
+
         # go through all of the found_obstructions from MySQL and check its "summary" field vs the one from CARTO
         # not found = insert
         # different = update
@@ -208,7 +249,12 @@ class ObstructionMyqlToCartoLoader:
             isthirdtime = {isthirdtime},
             thirdtimesenddate = {thirdtimesenddate},
             iscompleted = {iscompleted},
-            completeddate = {completeddate}
+            completeddate = {completeddate},
+            image1 = {image1},
+            image2 = {image2},
+            image3 = {image3},
+            image4 = {image4},
+            image5 = {image5}
         WHERE id = {id}
         """.format(
             id = row['id'],
@@ -222,6 +268,11 @@ class ObstructionMyqlToCartoLoader:
             issecondtime = self.quote_value(row['isSecondTime']),
             isthirdtime = self.quote_value(row['isThirdTime']),
             iscompleted = self.quote_value(row['isCompleted']),
+            image1 = self.quote_value(row['image1']),
+            image2 = self.quote_value(row['image2']),
+            image3 = self.quote_value(row['image3']),
+            image4 = self.quote_value(row['image4']),
+            image5 = self.quote_value(row['image5']),
         )
 
         self.run_carto_query(sql)
@@ -238,14 +289,16 @@ class ObstructionMyqlToCartoLoader:
             address, locationdetail,
             topcategory, subcategory,
             createdat, secondtimesenddate, thirdtimesenddate, completeddate,
-            isfirsttime, issecondtime, isthirdtime, iscompleted
+            isfirsttime, issecondtime, isthirdtime, iscompleted,
+            image1, image2, image3, image4, image5
         ) VALUES (
             {id},
             {obstructionlat}, {obstructionlong}, ST_POINTFROMTEXT('POINT({obstructionlong} {obstructionlat})',4326),
             {address}, {locationdetail},
             {topcategory}, {subcategory},
             {createdat}, {secondtimesenddate}, {thirdtimesenddate}, {completeddate},
-            {isfirsttime}, {issecondtime}, {isthirdtime}, {iscompleted}
+            {isfirsttime}, {issecondtime}, {isthirdtime}, {iscompleted},
+            {image1}, {image2}, {image3}, {image4}, {image5}
         )
         """.format(
             id = row['id'],
@@ -263,6 +316,11 @@ class ObstructionMyqlToCartoLoader:
             issecondtime = self.quote_value(row['isSecondTime']),
             isthirdtime = self.quote_value(row['isThirdTime']),
             iscompleted = self.quote_value(row['isCompleted']),
+            image1 = self.quote_value(row['image1']),
+            image2 = self.quote_value(row['image2']),
+            image3 = self.quote_value(row['image3']),
+            image4 = self.quote_value(row['image4']),
+            image5 = self.quote_value(row['image5']),
         )
 
         self.run_carto_query(sql)
