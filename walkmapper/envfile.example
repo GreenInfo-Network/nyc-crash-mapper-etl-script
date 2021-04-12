@@ -1,0 +1,11 @@
+# to import these environment variables from a Bash-like shell:
+# source walkmapper/envfile
+
+export WALKMAPPER_ETL_CARTO_API_KEY="supersecret"
+
+export WALKOBSTRUCTION_MYSQL_HOST="some-db-name.gridserver.com"
+export WALKOBSTRUCTION_MYSQL_PORT="3306"
+export WALKOBSTRUCTION_MYSQL_USER="db12345"
+export WALKOBSTRUCTION_MYSQL_PASS='nopenopenope'
+export WALKOBSTRUCTION_MYSQL_NAME="dbuser12345"
+

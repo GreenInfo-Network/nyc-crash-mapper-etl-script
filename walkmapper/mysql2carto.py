@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
+# set DB credentials in envfile OR set them in environment otherwise
+# import environment variables:   source walkmapper/envfile
 # call this script via CLI from parent directory:   python3 walkmapper/mysql2carto.py
 # this script relies on several environment variables for CARTO and for the MySQL DB where obstructions are stored
 
@@ -69,11 +71,15 @@ class ObstructionMyqlToCartoLoader:
         # look over the 2 tables and create lists:   self.records_to_insert   self.records_to_update   self.records_to_skip
         self.fetch_mysql_obstruction_records()
 
+        """GDA testing
         for row in self.records_to_insert:
             self.insert_record_to_carto(row)
             self.intersect_boundaries(row)
         for row in self.records_to_update:
             self.update_record_in_carto(row)
+        testing GDA"""
+        for row in self.records_to_delete:
+            self.delete_record_in_carto(row)
 
 
     def run_carto_query(self, sqlquery):
@@ -212,9 +218,34 @@ class ObstructionMyqlToCartoLoader:
             else:
                 self.records_to_skip.append(thisone)
 
+        # look for MySQL records with isDelete=1    these are to be deleted from the CARTO end
+        self.records_to_delete = []
+        with self.db.cursor() as cursor:
+            sql = """
+            SELECT
+                id,
+                obstructionLat, obstructionLong,
+                CONCAT(buildingNumber, ' ', streetName) AS address,
+                obstructionAddressLine AS locationdetail
+            FROM
+                obstructionDetails
+            WHERE isDelete
+            """
+            cursor.execute(sql)
+
+            for row in cursor.fetchall():
+                if row['id'] in alreadyincarto:
+                    row['id'] = int(row['id'])
+                    row['obstructionLat'] = float(row['obstructionLat']) 
+                    row['obstructionLong'] = float(row['obstructionLong'])
+                    self.records_to_delete.append(row)
+
+
+        # done, summary stats
+        logger.info("Sorted: {} to skip".format(len(self.records_to_skip)))
         logger.info("Sorted: {} to insert".format(len(self.records_to_insert)))
         logger.info("Sorted: {} to update".format(len(self.records_to_update)))
-        logger.info("Sorted: {} to skip".format(len(self.records_to_skip)))
+        logger.info("Sorted: {} to delete".format(len(self.records_to_delete)))
 
 
     def escape_string(self, string):
@@ -321,6 +352,19 @@ class ObstructionMyqlToCartoLoader:
             image3 = self.quote_value(row['image3']),
             image4 = self.quote_value(row['image4']),
             image5 = self.quote_value(row['image5']),
+        )
+
+        self.run_carto_query(sql)
+
+
+    def delete_record_in_carto(self, row):
+        # CARTO DB API doesn't do parameterized queries, so be sure to sanitize anything we didn't sanitize above
+        print("DELETE for obstruction ID {}".format(row['id']))
+
+        sql = """
+        DELETE FROM walkmapper_obstructions WHERE id={id}
+        """.format(
+            id = row['id'],
         )
 
         self.run_carto_query(sql)
