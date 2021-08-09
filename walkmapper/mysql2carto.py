@@ -71,13 +71,11 @@ class ObstructionMyqlToCartoLoader:
         # look over the 2 tables and create lists:   self.records_to_insert   self.records_to_update   self.records_to_skip
         self.fetch_mysql_obstruction_records()
 
-        """GDA testing
         for row in self.records_to_insert:
             self.insert_record_to_carto(row)
             self.intersect_boundaries(row)
         for row in self.records_to_update:
             self.update_record_in_carto(row)
-        testing GDA"""
         for row in self.records_to_delete:
             self.delete_record_in_carto(row)
 
