@@ -30,6 +30,8 @@ CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 
+INSERT_CHUNK_SIZE = 40  # inserting into CARTO, do this many records at a time, API time limit
+
 
 #
 # functions
@@ -39,7 +41,7 @@ def yyyymm2daterange(yyyymm):
     # given our yyyymm parameter, create start & end dates for queries
     # these are INCLUSIVE e.g. January 2015 is 2015-01-01 *through* 2015-01-31
     starting = datetime.date(int(yyyymm[0:4]), int(yyyymm[-2:]), 1)
-    ending = starting + relativedelta(months=1) - relativedelta(days=1)
+    ending = starting + relativedelta(months=1)
 
     starting = starting.isoformat()
     ending = ending.isoformat()
@@ -49,7 +51,7 @@ def yyyymm2daterange(yyyymm):
 
 def getcartoalreadyids(startdate, enddate):
     try:
-        sql = "SELECT DISTINCT socrata_id FROM {0} WHERE socrata_id IS NOT NULL AND date_val >= '{1}' AND date_val <= '{2}'".format(CARTO_CRASHES_TABLE, startdate, enddate)
+        sql = "SELECT DISTINCT socrata_id FROM {0} WHERE socrata_id IS NOT NULL AND date_val >= '{1}' AND date_val < '{2}'".format(CARTO_CRASHES_TABLE, startdate, enddate)
         alreadydata = requests.get(
             CARTO_SQL_API_BASEURL,
             params={
@@ -71,12 +73,12 @@ def getcartoalreadyids(startdate, enddate):
 
 def getsodacrashes(startdate, enddate):
     try:
-        whereclause = "date >= '{0}' AND date <= '{1}'".format(startdate, enddate)
+        whereclause = "crash_date >= '{0}' AND crash_date < '{1}'".format(startdate, enddate)
         crashdata = requests.get(
             SODA_API_COLLISIONS_BASEURL,
             params={
                 '$where': whereclause,
-                '$order': 'date DESC',
+                '$order': 'crash_date DESC',
                 '$limit': '50000'
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
@@ -98,7 +100,7 @@ def getsodacrashes(startdate, enddate):
 def filtertomissingcrashes(allcrashes, idsalready):
     filtered = []
     for crash in allcrashes:
-        if int(crash['unique_key']) not in idsalready:
+        if int(crash['collision_id']) not in idsalready:
             filtered.append(crash)
     return filtered
 
@@ -116,7 +118,7 @@ def soda2data(datarows):
 
     # iterate over data array and format each dictionary's values into strings for the INSERT SQL query
     for row in datarows:
-        datestring = "%sT%s" % (row['date'].split('T')[0], row['time'])
+        datestring = "%sT%s" % (row['crash_date'].split('T')[0], row['crash_time'])
         date_time = datetime.datetime.strptime(datestring, '%Y-%m-%dT%H:%M')
 
         # latitude and longitude may or may not be present
@@ -170,6 +172,12 @@ def soda2data(datarows):
         # copy our template value string
         val_string = insert_val_template_string[:]
 
+        # a few rare records lack number_of_persons_X fields, which is a fatal error if we let it go
+        if 'number_of_persons_killed' not in row:
+            row['number_of_persons_killed'] = int(row['number_of_motorist_killed']) + int(row['number_of_cyclist_killed']) + int(row['number_of_pedestrians_killed'])
+        if 'number_of_persons_injured' not in row:
+            row['number_of_persons_injured'] = int(row['number_of_motorist_injured']) + int(row['number_of_cyclist_injured']) + int(row['number_of_pedestrians_injured'])
+
         # create the sql value string
         vals.append(val_string.format(
             row['number_of_motorist_killed'],
@@ -194,7 +202,7 @@ def soda2data(datarows):
             date_time.strftime('%Y'),
             date_time.strftime('%m'),
             '1',
-            str(row['unique_key'])
+            str(row['collision_id'])
         ))
 
     # ready; return the list of massaged SQL strings
@@ -341,6 +349,11 @@ def performcartoquery(query):
         sys.exit(2)
 
 
+# https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
+def list_chunks(lst, n):
+    return [lst[i:i + n] for i in range(0, len(lst), n)]
+
+
 #
 # start execution
 #
@@ -362,7 +375,7 @@ if __name__ == '__main__':
 
     # get our INCLUSIVE start & ending dates
     (startdate, enddate) = yyyymm2daterange(yyyymm)
-    print("Date range: {} {}".format(startdate, enddate))
+    print("Date range: >= {} AND < {}".format(startdate, enddate))
 
     # get the list of crash IDs already present at CARTO
     print('Getting SODA IDs for crashes already in CARTO')
@@ -376,12 +389,18 @@ if __name__ == '__main__':
     crashesfromsoda = filtertomissingcrashes(crashesfromsoda, alreadyhaveids)
     print('Filtered to {0} crashes not yet present in CARTO'.format(len(crashesfromsoda)))
 
-    # massage the data and create a giant INSERT statement
+    # massage the data
     print('Formatting data...')
     soda2data = soda2data(crashesfromsoda)
-    insertsql = create_sql_insert(soda2data)
-    print('Inserting data...')
-    performcartoquery(insertsql)
+
+    # loop over the insertions in chunks, create SQL, and run it
+    done = 0
+    insert_chunks = list_chunks(soda2data, INSERT_CHUNK_SIZE)
+    for chunk in insert_chunks:
+        done += 1
+        print("Inserting chunk {} of {}".format(done, len(insert_chunks)))
+        insertsql = create_sql_insert(chunk)
+        performcartoquery(insertsql)
 
     # done
     print("Done")
