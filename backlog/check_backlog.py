@@ -373,7 +373,7 @@ if __name__ == '__main__':
         print("Supply a YYYY-MM month. See docs for details.")
         sys.exit(1)
 
-    # get our INCLUSIVE start & ending dates
+    # get our start & ending dates
     (startdate, enddate) = yyyymm2daterange(yyyymm)
     print("Date range: >= {} AND < {}".format(startdate, enddate))
 
