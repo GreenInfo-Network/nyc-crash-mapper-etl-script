@@ -822,7 +822,7 @@ def find_updated_killcounts():
     # those don't really count because we would have grabbed them the next day
     # generate an assoc:  sodacrashrecords[crashid] = crashdetails
     sincewhen = (date.today() - relativedelta(days=UPDATES_HOW_FAR_BACK))
-    logger.info('Find SODA records updated/modified since {0}'.format(sincewhen))
+    logger.info('find_updated_killcounts() Find SODA records updated/modified since {0}'.format(sincewhen))
 
     try:
         crashdata = requests.get(
@@ -962,6 +962,119 @@ def find_updated_killcounts():
     logger.info('Done updating records')
 
 
+def find_updated_latlongs():
+    # fetch the SODA records updated since X days ago, where the update-date is NOT the same as the created-date
+    # most records are updated seconds to minutes after creation, (seemingly) as an artifact of their workflow
+    # those don't really count because we would have grabbed them the next day
+    # generate an assoc:  sodacrashrecords[crashid] = crashdetails
+    sincewhen = (date.today() - relativedelta(days=UPDATES_HOW_FAR_BACK))
+    logger.info('find_updated_latlongs() Find SODA records updated/modified since {0}'.format(sincewhen))
+
+    try:
+        crashdata = requests.get(
+            SODA_API_COLLISIONS_BASEURL,
+            params={
+                '$select': ':*,*',
+                '$where': ":updated_at >= '%s' AND latitude IS NOT NULL AND latitude != '0'" % sincewhen.strftime('%Y-%m-%d'),
+                '$limit': '50000'
+            }
+        ).json()
+    except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+
+    if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
+        sodacrashrecords = {}
+        for crash in crashdata:
+            if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
+                sodacrashrecords[int(crash['collision_id'])] = crash
+        logger.info('find_updated_latlongs() Got {0} SODA entries updated since {1}'.format(len(sodacrashrecords), sincewhen))
+    elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
+        logger.error(crashdata['message'])
+        sys.exit(1)
+    else:  # no data?
+        logger.info('No data returned from Socrata, exiting.')
+        sys.exit()
+
+    # find the corresponding records in CARTO
+    cartocrashrecords = []
+    done = 0
+    batch_size = 500
+    idchunks = list_chunks(list(sodacrashrecords.keys()), batch_size)
+    for idchunk in idchunks:
+        done += 1
+        logger.info('find_updated_latlongs() Find corresponding CARTO records: {} / {}'.format(done, len(idchunks)))
+
+        sql = """
+        SELECT socrata_id, cartodb_id, date_val, ST_X(the_geom) AS lng, ST_Y(the_geom) AS lat
+        FROM {}
+        WHERE socrata_id IN ({})
+        """.format(
+            CARTO_CRASHES_TABLE,
+            ','.join([str(i) for i in idchunk]),
+        )
+
+        try:
+            gotcrashes = requests.get( CARTO_SQL_API_BASEURL, params={ 'q': sql, }).json()
+        except requests.exceptions.RequestException as e:
+            logger.error(e.message)
+            sys.exit(1)
+        if not 'rows' in gotcrashes or not len(gotcrashes['rows']):
+            logger.error('No socrata_id rows: {0}'.format(json.dumps(gotcrashes)))
+            sys.exit(1)
+        # logger.info('    Found {0} CARTO entries in this block'.format(len(gotcrashes['rows'])))
+        cartocrashrecords += gotcrashes['rows']
+
+        time.sleep(5) # don't spam CARTO
+
+    logger.info('find_updated_latlongs() Found {} corresponding CARTO records'.format(len(cartocrashrecords)))
+
+    # figure which of those records has an updated lat-lng that we should update at CARTO
+    # - carto record has null geom (SODA really does do that, then they geocode it days later)
+    # - carto record has geom, and distance between SODA and CARTO geoms is > 15 meters
+    meters_threshold = 15
+
+    updates = []
+    for crash in cartocrashrecords:
+        socrataid = crash['socrata_id']
+        soda = sodacrashrecords[socrataid]
+        lat_old = crash['lat']
+        lng_old = crash['lng']
+        lat_new = float(soda['latitude'])
+        lng_new = float(soda['longitude'])
+
+        updateme = False
+        if not lat_old or not lng_old:
+            updateme = True
+            logger.info('find_updated_latlongs() socrata_id {} has no lat-long in CARTO'.format(socrataid))
+        else:
+            meters = haversine(lat_old, lng_old, lat_new, lng_new)
+            if meters >= meters_threshold:
+                updateme = True
+                logger.info('find_updated_latlongs() socrata_id {} has moved {} meters'.format(socrataid, meters))
+
+        if not updateme:
+            continue
+
+        sql = """
+        UPDATE {}
+        SET
+            the_geom=ST_SETSRID(ST_GEOMFROMTEXT('POINT({} {})'), 4326),
+            longitude={}, latitude={},
+            borough=NULL, city_council=NULL, senate=NULL, assembly=NULL, businessdistrict=NULL, community_board=NULL, neighborhood=NULL, nypd_precinct=NULL
+        WHERE socrata_id={}
+        """.format(
+            CARTO_CRASHES_TABLE,
+            lng_new, lat_new,
+            lng_new, lat_new,
+            socrataid
+        )
+        updates.append(sql)
+
+    logger.info('find_updated_latlongs() Found {} geom updates'.format(len(updates)))
+    return updates
+
+
 def update_hasvehicle(vehicleboolfieldfieldname, standardizedalias):
     """
     SQL query to update hasvehicle_XXX fields
@@ -990,6 +1103,28 @@ def update_analyzeindex():
     return 'VACUUM FULL {}'.format(CARTO_CRASHES_TABLE)
 
 
+# https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
+def list_chunks(lst, n):
+    return [lst[i:i + n] for i in range(0, len(lst), n)]
+
+
+# a Haversine implementationm in Python, modified to return integer meters
+# https://stackoverflow.com/questions/4913349/haversine-formula-in-python-bearing-and-distance-between-two-gps-points
+def haversine(lat1, lon1, lat2, lon2):
+    from math import radians, cos, sin, asin, sqrt
+
+    R = 6372800
+    dLat = radians(lat2 - lat1)
+    dLon = radians(lon2 - lon1)
+    lat1 = radians(lat1)
+    lat2 = radians(lat2)
+
+    a = sin(dLat / 2)**2 + cos(lat1) * cos(lat2) * sin(dLon / 2)**2
+    c = 2 * asin(sqrt(a))
+
+    return int(round(R * c))
+
+
 def main():
     try:
         # some longer-running and non-sequential updates are launched via the Batch Query API
@@ -1006,6 +1141,10 @@ def main():
         # a quirk we didn't discover for some time: records may be retroactively updated
         # and their injury/killed counts may have changed, e.g. a injury later reported, or an injury that was later fatal
         find_updated_killcounts()
+
+        # a quirk we didn't discover for some time: they sometimes go back and change a crash's latlong
+        # sometimes by multiple kilometers, so a different borough, precinct, neighborhood, ...
+        start_carto_batchjob( find_updated_latlongs() )
 
         # update the nyc_intersections crashcount field, giving a rough idea of the most crashy intersections citywide
         # this can be done via batch, as it doesn't need to be specifically sequenced like the steps above
@@ -1055,6 +1194,7 @@ def main():
     except Exception as e:
         logger.info(e)
         send_email_notification("Script failed check error log for detail", "Script failed " + str(e))
+
 
 if __name__ == '__main__':
     if not CARTO_API_KEY:
