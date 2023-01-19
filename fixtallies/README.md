@@ -8,12 +8,21 @@ This script will correct that, by comparing a data dump from CARTO with a data d
 
 ### Date Range and Summary Stats
 
-The target date range for this run is **date >= '2015-01-01 date < '2017-03-01'** At the time this is being written, data starting in March 2017 are looking just fine.
+The target date range for this run is **date >= '2020-01-01 date < '2022-12-31'** This is a re-run of a process not done since 2020, to resolve variation in deaths and injuries. 
 
+Some elements in the docs were updated then as well, particularly to acount for changes in Socrata data ID and schema.
+
+## 2015-2017 run
+`date_val::date >= '2015-01-01' AND date_val::date < '2017-03-01'`
 * 478636 crashes in the SODA CSV
 * 478618 crashes in the CARTO CSV
 * 87408 crashes (18%) had a mismatched value in any of the 8 injury fields
 
+## 2020-2022 Run
+`AND date_val::date >= '2020-01-01' AND date_val::date < '2022-12-31'`
+*  crashes in the SODA CSV
+*  crashes in the CARTO CSV
+*  crashes (%) had a mismatched value in any of the 8 injury fields
 
 ### Data Prep
 
@@ -35,7 +44,7 @@ SELECT
 FROM crashes_all_prod
 WHERE
     socrata_id IS NOT NULL
-    AND date_val::date >= '2015-01-01' AND date_val::date < '2017-03-01'
+    AND date_val::date >= '2020-01-01' AND date_val::date < '2022-12-31'
     ORDER BY date_val
 ```
 
@@ -44,7 +53,7 @@ WHERE
 Download a CSV from SODA using an URL like this. Save it as **AllCrashes-SODA.csv**
 
 ```
-https://data.cityofnewyork.us/resource/qiz3-axqb.csv?$where=date%3E=%272015-01-01%27%20AND%20date%3C%272017-03-01%27&$order=date%20ASC&$limit=1000000
+https://data.cityofnewyork.us/resource/h9gi-nx95.csv?$where=crash_date%3E=%272020-01-01%27%20AND%20crash_date%3C%272022-12-31%27&$order=crash_date%20ASC&$limit=1000000
 ```
 
 
