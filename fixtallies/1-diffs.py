@@ -20,20 +20,20 @@ CARTO_RECORDS = {}
 SODA_RECORDS = {}
 
 print("Load {}".format(CSVIN_CARTO))
-input_file = csv.DictReader(open(CSVIN_CARTO, 'rb'))
+input_file = csv.DictReader(open(CSVIN_CARTO, 'r'))
 for crashinfo in input_file:
     crash_id = crashinfo['socrata_id']
     CARTO_RECORDS[crash_id] = crashinfo
 
 print("Load {}".format(CSVIN_SODA))
-input_file = csv.DictReader(open(CSVIN_SODA, 'rb'))
+input_file = csv.DictReader(open(CSVIN_SODA, 'r'))
 for crashinfo in input_file:
     crash_id = crashinfo['collision_id']
     SODA_RECORDS[crash_id] = crashinfo
 
 
 print("Open target CSV {}".format(DIFFS_OUTFILE))
-ofh = open(DIFFS_OUTFILE, 'wb')
+ofh = open(DIFFS_OUTFILE, 'w')
 diffcsvwriter = csv.writer(ofh)
 diffcsvwriter.writerow([
     'socrata_id',

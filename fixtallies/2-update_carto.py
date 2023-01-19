@@ -23,7 +23,7 @@ CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 
 def run():
     print("Load {}".format(DIFFS_CSVILE))
-    input_file = csv.DictReader(open(DIFFS_CSVILE, 'rb'))
+    input_file = csv.DictReader(open(DIFFS_CSVILE, 'r'))
 
     howmanydone = 0
 
