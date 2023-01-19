@@ -56,7 +56,7 @@ def run():
 
         # print(sql)
         performcartoquery(sql)
-        sleep(1)
+        sleep(2)
 
         # periodic maintenance: progress readout, and a VACUUM
         howmanydone += 1
