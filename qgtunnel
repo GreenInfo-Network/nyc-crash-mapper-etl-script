@@ -1,6 +1,6 @@
 
 [qgtunnel.Walkmapper_MySQL]
 accept = "127.0.0.1:3306"
-connect = "142.11.243.132:3306"
+connect = "142.11.243.132:"
 encrypted = false
-transparent = true
+transparent = false
