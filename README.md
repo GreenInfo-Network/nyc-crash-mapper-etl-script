@@ -81,3 +81,7 @@ heroku git:remote -a nyc-crash-mapper-etl
 ```
 git push heroku master
 ```
+
+## Note about qgtunnel
+
+In 2023, we needed to have a static IP for this service, so that it could be safelisted for use with a MySQL database the client is using for the Walkmapper project. Heroku does not offer static IPs itself, but there's an addon for it. the `.qgtunnel` file in the root of this repo is the config for that. Settings and docs are reachable via the add-on section of the control panel on heroku.com.
