@@ -34,9 +34,9 @@ def run():
         lat_new = float(row['latitude'])
         lng_new = float(row['longitude'])
         meters = haversine(lat_old, lng_old, lat_new, lng_new)
-        overthreshold = meters <= DISTANCE_THRESHOLD
+        underthreshold = meters <= DISTANCE_THRESHOLD
 
-        if False:  # change to True, False, or overthreshold, to tune the verbose debugging
+        if False:  # change to True, False, or underthreshold, to tune the verbose debugging
             print("    {}    {}    {} meters    ({}, {}, {}, {})".format(
                 row['collision_id'],
                 row['crash_date'],
@@ -44,7 +44,7 @@ def run():
                 lat_old, lng_old, lat_new, lng_new
             ))
 
-        if overthreshold:
+        if underthreshold:
             continue
 
         updates.append({

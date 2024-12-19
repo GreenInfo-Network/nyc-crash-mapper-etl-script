@@ -564,11 +564,14 @@ def start_carto_batchjob(querylist):
         r = requests.post(url, json=jsonbody)
         jobinfo = r.json()
         if 'error' in jobinfo and jobinfo['error']:
-            raise requests.exceptions.RequestException(jobinfo['error'])
+            raise ValueError(jobinfo['error'])
         jobid = jobinfo['job_id']
         logger.info('CARTO Batch Job ID: {}'.format(jobid))
         return jobid
     except requests.exceptions.RequestException as e:
+        logger.error(e.message)
+        sys.exit(1)
+    except Exception as e:
         logger.error(e.message)
         sys.exit(1)
 
@@ -1044,9 +1047,9 @@ def find_updated_latlongs():
         lng_new = float(soda['longitude'])
 
         updateme = False
-        if not lat_old or not lng_old:
+        if (not lat_old or not lng_old) and lat_new and lng_new:
             updateme = True
-            logger.info('find_updated_latlongs() socrata_id {} has no lat-long in CARTO'.format(socrataid))
+            logger.info('find_updated_latlongs() socrata_id {} has no lat-long in CARTO, is now {lng_new} {lat_new}'.format(socrataid))
         else:
             meters = haversine(lat_old, lng_old, lat_new, lng_new)
             if meters >= meters_threshold:

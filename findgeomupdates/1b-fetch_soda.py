@@ -20,9 +20,15 @@ def run():
     print("Querying SODA, {} records per page".format(soda_chunk_size))
     for thesecrashids in soda_chunks:
         done += 1
-        print("    {} of {}".format(done, len(soda_chunks)))
-        soda_rows += getsodaforcrashids(thesecrashids)
-        sleep(5)
+        while True:
+            try:
+                print("    {} of {}".format(done, len(soda_chunks)))
+                soda_rows += getsodaforcrashids(thesecrashids)
+                sleep(5)
+                break
+            except:
+                print("        Failed {} of {} Will retry.".format(done, len(soda_chunks)))
+                sleep(20)
 
     print("Writing CSV {}".format(CSV_DATAFILE_SODA))
     with open(CSV_DATAFILE_SODA, 'w') as fh:
@@ -36,13 +42,11 @@ def run():
         ])
 
         for row in soda_rows:
-            # GDA
             # strange but true, we saw at least one
             if 'collision_id' not in row:
                 print("SODA row with no collision_id")
                 print(row)
                 continue
-            # GDA
 
             spamwriter.writerow([
                 row['collision_id'],
