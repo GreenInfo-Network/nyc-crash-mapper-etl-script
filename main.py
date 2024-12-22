@@ -981,7 +981,8 @@ def find_updated_latlongs():
                 '$where': ":updated_at >= '%s' AND latitude IS NOT NULL AND latitude != '0'" % sincewhen.strftime('%Y-%m-%d'),
                 '$limit': '50000'
             }
-        ).json()
+        )
+        crashdata = crashdata.json()
     except requests.exceptions.RequestException as e:
         logger.error(e.message)
         sys.exit(1)
@@ -1049,7 +1050,7 @@ def find_updated_latlongs():
         updateme = False
         if (not lat_old or not lng_old) and lat_new and lng_new:
             updateme = True
-            logger.info('find_updated_latlongs() socrata_id {} has no lat-long in CARTO, is now {lng_new} {lat_new}'.format(socrataid))
+            logger.info('find_updated_latlongs() socrata_id {} has no lat-long in CARTO, is now {} {}'.format(socrataid, lng_new, lat_new))
         else:
             meters = haversine(lat_old, lng_old, lat_new, lng_new)
             if meters >= meters_threshold:

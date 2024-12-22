@@ -29,19 +29,34 @@ def run():
         id = row['collision_id']
         old = existing_records[id]
 
-        lat_old = float(old['lat'])
-        lng_old = float(old['lng'])
-        lat_new = float(row['latitude'])
-        lng_new = float(row['longitude'])
-        meters = haversine(lat_old, lng_old, lat_new, lng_new)
-        underthreshold = meters <= DISTANCE_THRESHOLD
+        lat_old = float(old['lat']) if old['lat'] else None
+        lng_old = float(old['lng']) if old['lng'] else None
+        lat_new = float(row['latitude']) if row['latitude'] else None
+        lng_new = float(row['longitude']) if row['longitude'] else None
 
-        if False:  # change to True, False, or underthreshold, to tune the verbose debugging
-            print("    {}    {}    {} meters    ({}, {}, {}, {})".format(
+        underthreshold = True
+
+        if lat_old and lng_old and lat_new and lng_new:
+            # new coordinates; is it sufficiently far to care?
+            meters = haversine(lat_old, lng_old, lat_new, lng_new)
+            if meters > DISTANCE_THRESHOLD:
+                underthreshold = False
+
+                print("    {}    {}    {} meters    ({}, {}, {}, {})".format(
+                    row['collision_id'],
+                    row['crash_date'],
+                    meters,
+                    lat_old, lng_old, lat_new, lng_new
+                ))
+        elif lat_new and lng_new and (not lat_old or not lng_old):
+            # coordinates for a point that did not previously have coordinates
+            meters = "NEWCOORDS"
+            underthreshold = False
+
+            print("    {}    {}    nowhascoords ({}, {})".format(
                 row['collision_id'],
                 row['crash_date'],
-                meters,
-                lat_old, lng_old, lat_new, lng_new
+                lat_new, lng_new
             ))
 
         if underthreshold:

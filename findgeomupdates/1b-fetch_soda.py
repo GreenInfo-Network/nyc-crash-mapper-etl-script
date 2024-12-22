@@ -27,7 +27,7 @@ def run():
                 sleep(5)
                 break
             except:
-                print("        Failed {} of {} Will retry.".format(done, len(soda_chunks)))
+                print("        Will retry {} of {}".format(done, len(soda_chunks)))
                 sleep(20)
 
     print("Writing CSV {}".format(CSV_DATAFILE_SODA))
@@ -51,8 +51,8 @@ def run():
             spamwriter.writerow([
                 row['collision_id'],
                 row['crash_date'],
-                row['longitude'],
-                row['latitude'],
+                row['longitude'] if 'longitude' in row else '',
+                row['latitude'] if 'latitude' in row else '',
             ])
 
     # done
@@ -62,16 +62,14 @@ def run():
 
 def getsodaforcrashids(collisionids):
     # fetch SODA for the specified collision_id list
-    # the latlong-not-null is added because it was noted that SODA doesn't in fact have latlong for some records
-    # and such records would not be useful, being less data than we already have! (geocoding session back in 2017?)
     try:
-        whereclause = "collision_id IN ({}) AND latitude IS NOT NULL AND latitude != '0'".format(','.join([str(i) for i in collisionids]))
+        whereclause = "collision_id IN ({})".format(','.join([str(i) for i in collisionids]))
         crashdata = requests.get(
             SODA_API_COLLISIONS_BASEURL,
             params={
                 '$where': whereclause,
                 '$order': 'collision_id ASC',
-                '$limit': '50000',
+                '$limit': '50000',  # their default is something low like 100 so specify their highest cap here; in fact we send chunks of 500 (soda_chunk_size)
             },
             verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
         ).json()

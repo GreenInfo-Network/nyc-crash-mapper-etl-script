@@ -46,8 +46,14 @@ def run():
             row['socrata_id']
         )
 
-        performcartoquery(sql)
-        sleep(5)
+        while True:
+            try:
+                performcartoquery(sql)
+                sleep(5)
+                break
+            except:
+                print("    Retrying...")
+                sleep(20)
 
     print("DONE")
 

@@ -11,7 +11,7 @@ def run():
     sql = """
     SELECT socrata_id, cartodb_id, date_val, ST_X(the_geom) AS lng, ST_Y(the_geom) AS lat
     FROM {}
-    WHERE socrata_id IS NOT NULL AND date_val >= '{}T00:00:00Z' AND the_geom IS NOT NULL
+    WHERE socrata_id IS NOT NULL AND date_val >= '2016-01-01T00:00:00Z'
     ORDER BY socrata_id
     """.format(
         CARTO_CRASHES_TABLE,

@@ -12,8 +12,6 @@ CARTO_CRASHES_TABLE = 'crashes_all_prod'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/qiz3-axqb.json'
 
-MIN_DATE = '2016-01-01'
-
 CSV_DATAFILE_SODA = 'CrashData-SODA.csv'
 CSV_DATAFILE_CARTO = 'CrashData-CARTO.csv'
 CSV_DATAFILE_DIFFS = 'CrashData-DIFFS.csv'
@@ -51,7 +49,7 @@ def performcartoquery(query):
     if ('rows' in data) and len(data['rows']):
         return data['rows']
     elif 'error' in data:
-        logger.error('performcartoquery(): Failed query\n    {}\n    {}'.format(query,  data['error']))
+        print('performcartoquery(): Failed query\n    {}\n    {}'.format(query,  data['error']))
         sys.exit(1)
 
 
