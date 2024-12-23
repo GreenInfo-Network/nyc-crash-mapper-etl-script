@@ -51,8 +51,7 @@ BOUNDARY_INTERSECTIONS = [
 
 
 import requests
-import MySQLdb
-import MySQLdb.cursors
+import mysql.connector
 import logging
 import sys
 import json
@@ -61,7 +60,7 @@ import json
 class ObstructionMyqlToCartoLoader:
     def __init__(self):
         # set up and initialization, e.g. connect to MySQL DB
-        self.db = MySQLdb.connect(host=DB_HOST, port=int(DB_PORT), user=DB_USER, password=DB_PASS, database=DB_NAME, cursorclass=MySQLdb.cursors.DictCursor)
+        self.db = mysql.connector.connect(host=DB_HOST, port=int(DB_PORT), user=DB_USER, password=DB_PASS, database=DB_NAME)
 
         self.cartoapiurl = CARTO_SQL_API_BASEURL
         self.cartoapikey = CARTO_API_KEY
@@ -251,7 +250,7 @@ class ObstructionMyqlToCartoLoader:
         # and around Python 3's bytes behavior
         if string is None:
             return ''
-        return str(MySQLdb.escape_string(string), 'utf-8')
+        return str(mysql.connector.MySQLConnection.escape_string(string))
 
 
     def quote_value(self, value):
