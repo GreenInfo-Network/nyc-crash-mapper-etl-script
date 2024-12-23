@@ -14,16 +14,16 @@ def run():
         for row in spamreader:
             id = row['socrata_id']
             existing_records[id] = row
-    print("    Loaded {} pre-existing rows".format(len(existing_records)))
+    print(f"    Loaded {len(existing_records)} pre-existing rows")
 
     print("Loading Socrata CSV")
     potential_updates = []
     with open(CSV_DATAFILE_SODA) as fh:
         spamreader = csv.DictReader(fh)
         potential_updates = [row for row in spamreader if row['collision_id'] in existing_records]
-    print("    Loaded {} potential updates".format(len(potential_updates)))
+    print(f"    Loaded {len(potential_updates)} potential updates")
 
-    print("Finding changes over {} meters".format(DISTANCE_THRESHOLD))
+    print(f"Finding changes over {DISTANCE_THRESHOLD} meters")
     updates = []
     for row in potential_updates:
         id = row['collision_id']
@@ -42,22 +42,13 @@ def run():
             if meters > DISTANCE_THRESHOLD:
                 underthreshold = False
 
-                print("    {}    {}    {} meters    ({}, {}, {}, {})".format(
-                    row['collision_id'],
-                    row['crash_date'],
-                    meters,
-                    lat_old, lng_old, lat_new, lng_new
-                ))
+                print(f"    {row['collision_id']}    {row['crash_date']}    {meters} meters    ({lat_old}, {lng_old}, {lat_new}, {lng_new})")
         elif lat_new and lng_new and (not lat_old or not lng_old):
             # coordinates for a point that did not previously have coordinates
             meters = "NEWCOORDS"
             underthreshold = False
 
-            print("    {}    {}    nowhascoords ({}, {})".format(
-                row['collision_id'],
-                row['crash_date'],
-                lat_new, lng_new
-            ))
+            print(f"    {row['collision_id']}    {row['crash_date']}    nowhascoords ({lat_new}, {lng_new})")
 
         if underthreshold:
             continue
@@ -73,9 +64,9 @@ def run():
             'metersdiff': meters,
         })
 
-    print("Found {} records to update".format(len(updates)))
+    print(f"Found {len(updates)} records to update")
 
-    print("Writing CSV {}".format(CSV_DATAFILE_DIFFS))
+    print(f"Writing CSV {CSV_DATAFILE_DIFFS}")
     with open(CSV_DATAFILE_DIFFS, 'w') as fh:
         spamwriter = csv.writer(fh)
 
@@ -105,7 +96,7 @@ def run():
     # done
     print("")
     print("Done")
-    print("Review the diffs CSV {}".format(CSV_DATAFILE_DIFFS))
+    print(f"Review the diffs CSV {CSV_DATAFILE_DIFFS}")
     print("Then proceed to step 3.")
 
 

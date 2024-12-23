@@ -11,26 +11,38 @@ def run():
     with open(CSV_DATAFILE_CARTO) as fh:
         spamreader = csv.DictReader(fh)
         socrata_ids = [row['socrata_id'] for row in spamreader]
-    print("Loaded {} rows to check".format(len(socrata_ids)))
+    print(f"Loaded {len(socrata_ids)} rows to check")
 
     soda_rows = []
     soda_chunk_size = 500
     soda_chunks = list_chunks(socrata_ids, soda_chunk_size)
     done = 0
-    print("Querying SODA, {} records per page".format(soda_chunk_size))
+    print(f"Querying SODA, {soda_chunk_size} records per page")
     for thesecrashids in soda_chunks:
         done += 1
         while True:
             try:
-                print("    {} of {}".format(done, len(soda_chunks)))
-                soda_rows += getsodaforcrashids(thesecrashids)
+                print(f"    {done} of {len(soda_chunks)}")
+
+                thesecrashidstring = ','.join([str(i) for i in thesecrashids])
+                thesecrashdata = requests.get(
+                    SODA_API_COLLISIONS_BASEURL,
+                    params={
+                        '$where': f"collision_id IN ({thesecrashidstring})",
+                        '$order': 'collision_id ASC',
+                        '$limit': '50000',  # their default is something low like 100 so specify their highest cap here; in fact we send chunks of 500 (soda_chunk_size)
+                    },
+                    verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
+                ).json()
+
+                soda_rows += thesecrashdata
                 sleep(5)
                 break
-            except:
-                print("        Will retry {} of {}".format(done, len(soda_chunks)))
+            except:  # GDA
+                print("        Oops, retrying")
                 sleep(20)
 
-    print("Writing CSV {}".format(CSV_DATAFILE_SODA))
+    print(f"Writing CSV {CSV_DATAFILE_SODA}")
     with open(CSV_DATAFILE_SODA, 'w') as fh:
         spamwriter = csv.writer(fh)
 
@@ -58,34 +70,6 @@ def run():
     # done
     print("")
     print("Done with this step. Proceed to step 2.")
-
-
-def getsodaforcrashids(collisionids):
-    # fetch SODA for the specified collision_id list
-    try:
-        whereclause = "collision_id IN ({})".format(','.join([str(i) for i in collisionids]))
-        crashdata = requests.get(
-            SODA_API_COLLISIONS_BASEURL,
-            params={
-                '$where': whereclause,
-                '$order': 'collision_id ASC',
-                '$limit': '50000',  # their default is something low like 100 so specify their highest cap here; in fact we send chunks of 500 (soda_chunk_size)
-            },
-            verify=False  # requests hates the SSL certificate due to hostname mismatch, but it IS valid
-        ).json()
-        return crashdata
-    except requests.exceptions.RequestException as e:
-        print(e.message)
-        sys.exit(1)
-
-    if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
-        return crashdata
-    elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
-        logger.error(crashdata['message'])
-        sys.exit(2)
-    else:  # no data?
-        print('No data returned from Socrata, exiting.')
-        sys.exit(2)
 
 
 if __name__ == '__main__':

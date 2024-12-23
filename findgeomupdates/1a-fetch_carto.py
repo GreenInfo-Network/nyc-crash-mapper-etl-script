@@ -8,19 +8,16 @@ from findgeomupdates_config import *
 
 def run():
     print("Querying Carto")
-    sql = """
+    sql = f"""
     SELECT socrata_id, cartodb_id, date_val, ST_X(the_geom) AS lng, ST_Y(the_geom) AS lat
-    FROM {}
+    FROM {CARTO_CRASHES_TABLE}
     WHERE socrata_id IS NOT NULL AND date_val >= '2016-01-01T00:00:00Z'
     ORDER BY socrata_id
-    """.format(
-        CARTO_CRASHES_TABLE,
-        MIN_DATE
-    )
+    """
     cartodb_rows = performcartoquery(sql)
-    print("{} rows have geometry".format(len(cartodb_rows)))
+    print(f"{len(cartodb_rows)} rows have geometry")
 
-    print("Writing CSV {}".format(CSV_DATAFILE_CARTO))
+    print(f"Writing CSV {CSV_DATAFILE_CARTO}")
     with open(CSV_DATAFILE_CARTO, 'w') as fh:
         spamwriter = csv.writer(fh)
 
