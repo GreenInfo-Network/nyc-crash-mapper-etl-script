@@ -111,7 +111,7 @@ class ObstructionMyqlToCartoLoader:
 
         # from MySQL fetch a list of all obstructions in their system, as well as a "summary"
         # do some data type corrections: datetime objects to ISO strings, float fields as floats, bytes as strings, ...
-        with self.db.cursor() as cursor:
+        with self.db.cursor(dictionary=True) as cursor:
             sql = """
             SELECT
                 o.id,
@@ -164,7 +164,7 @@ class ObstructionMyqlToCartoLoader:
         # they're using MySQL 5 which doens't support CTEs nor window functions, so we have to do it the long & slow way
         # populate the 5 imageX fields, then recalculate the summary field
         for row in found_obstructions:
-            with self.db.cursor() as cursor:
+            with self.db.cursor(dictionary=True) as cursor:
                 row['image1'] = None
                 row['image2'] = None
                 row['image3'] = None
@@ -217,7 +217,7 @@ class ObstructionMyqlToCartoLoader:
 
         # look for MySQL records with isDelete=1    these are to be deleted from the CARTO end
         self.records_to_delete = []
-        with self.db.cursor() as cursor:
+        with self.db.cursor(dictionary=True) as cursor:
             sql = """
             SELECT
                 id,
