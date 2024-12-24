@@ -67,6 +67,10 @@ class ObstructionMyqlToCartoLoader:
 
 
     def run(self):
+        # GDA
+        logger.info("GDA aborting")
+        return
+        # GDA
         # look over the 2 tables and create lists:   self.records_to_insert   self.records_to_update   self.records_to_skip
         self.fetch_mysql_obstruction_records()
 
