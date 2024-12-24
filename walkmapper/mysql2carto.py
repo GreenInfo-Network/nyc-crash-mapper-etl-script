@@ -250,7 +250,7 @@ class ObstructionMyqlToCartoLoader:
         # and around Python 3's bytes behavior
         if string is None:
             return ''
-        return str(self.db.escape_string(string))
+        return str(self.db._cmysql.escape_string(string))
 
 
     def quote_value(self, value):
