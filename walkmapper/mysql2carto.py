@@ -67,10 +67,6 @@ class ObstructionMyqlToCartoLoader:
 
 
     def run(self):
-        # GDA
-        logger.info("GDA aborting")
-        return
-        # GDA
         # look over the 2 tables and create lists:   self.records_to_insert   self.records_to_update   self.records_to_skip
         self.fetch_mysql_obstruction_records()
 
@@ -92,7 +88,7 @@ class ObstructionMyqlToCartoLoader:
             reply = requests.get(self.cartoapiurl, params=params).json()
 
             if 'rows' not in reply:
-                raise requests.exceptions.RequestException("No rows found in returned data: {}".format(json.dumps(reply)))
+                raise requests.exceptions.RequestException(f"No rows found in returned data: {json.dumps(reply)}")
 
             return reply
         except requests.exceptions.RequestException as e:
@@ -111,7 +107,7 @@ class ObstructionMyqlToCartoLoader:
         ))
         for row in gotten['rows']:
             alreadyincarto[ int(row['id']) ] = row['summary']
-        logger.info("Found {howmany} obstructions in CARTO".format(howmany=len(alreadyincarto)))
+        logger.info(f"Found {len(alreadyincarto)} obstructions in CARTO")
 
         # from MySQL fetch a list of all obstructions in their system, as well as a "summary"
         # do some data type corrections: datetime objects to ISO strings, float fields as floats, bytes as strings, ...
@@ -167,6 +163,7 @@ class ObstructionMyqlToCartoLoader:
         # .. but then a second pass to collect photos into the records as image1 through image5
         # they're using MySQL 5 which doens't support CTEs nor window functions, so we have to do it the long & slow way
         # populate the 5 imageX fields, then recalculate the summary field
+        logger.info("Collecting photo records")
         for row in found_obstructions:
             with self.db.cursor(dictionary=True) as cursor:
                 row['image1'] = None
@@ -207,6 +204,7 @@ class ObstructionMyqlToCartoLoader:
         # not found = insert
         # different = update
         # same = no change, skip
+        logger.info("Collating inserts, updates, and skips")
         self.records_to_insert = []
         self.records_to_update = []
         self.records_to_skip = []
@@ -220,6 +218,7 @@ class ObstructionMyqlToCartoLoader:
                 self.records_to_skip.append(thisone)
 
         # look for MySQL records with isDelete=1    these are to be deleted from the CARTO end
+        logger.info("Looking for deletions")
         self.records_to_delete = []
         with self.db.cursor(dictionary=True) as cursor:
             sql = """
@@ -243,18 +242,10 @@ class ObstructionMyqlToCartoLoader:
 
 
         # done, summary stats
-        logger.info("Sorted: {} to skip".format(len(self.records_to_skip)))
-        logger.info("Sorted: {} to insert".format(len(self.records_to_insert)))
-        logger.info("Sorted: {} to update".format(len(self.records_to_update)))
-        logger.info("Sorted: {} to delete".format(len(self.records_to_delete)))
-
-
-    def escape_string(self, string):
-        # wrapper around MySQL escape (works for PostgreSQL too, for any string we'll encounter)
-        # and around Python 3's bytes behavior
-        if string is None:
-            return ''
-        return str(self.db._cmysql.escape_string(string))
+        logger.info(f"Sorted: {len(self.records_to_skip)} to skip")
+        logger.info(f"Sorted: {len(self.records_to_insert)} to insert")
+        logger.info(f"Sorted: {len(self.records_to_update)} to update")
+        logger.info(f"Sorted: {len(self.records_to_delete)} to delete")
 
 
     def quote_value(self, value):
@@ -265,12 +256,12 @@ class ObstructionMyqlToCartoLoader:
             return 'TRUE'
         if value is False:
             return 'FALSE'
-        return "'{}'".format(self.escape_string(value))
+        return "E'{}'".format(str(value).replace("'", "\'"))
 
 
     def update_record_in_carto(self, row):
         # CARTO DB API doesn't do parameterized queries, so be sure to sanitize anything we didn't sanitize above
-        print("UPDATE for obstruction ID {}".format(row['id']))
+        logger.info("UPDATE for obstruction ID {}".format(row['id']))
 
         sql = """
         UPDATE walkmapper_obstructions SET
@@ -312,7 +303,7 @@ class ObstructionMyqlToCartoLoader:
 
     def insert_record_to_carto(self, row):
         # CARTO DB API doesn't do parameterized queries, so be sure to sanitize anything we didn't sanitize above
-        print("INSERT for obstruction ID {}".format(row['id']))
+        logger.info("INSERT for obstruction ID {}".format(row['id']))
 
         sql = """
         INSERT INTO walkmapper_obstructions (
@@ -354,28 +345,24 @@ class ObstructionMyqlToCartoLoader:
             image4 = self.quote_value(row['image4']),
             image5 = self.quote_value(row['image5']),
         )
-
         self.run_carto_query(sql)
 
 
     def delete_record_in_carto(self, row):
         # CARTO DB API doesn't do parameterized queries, so be sure to sanitize anything we didn't sanitize above
-        print("DELETE for obstruction ID {}".format(row['id']))
+        logger.info("DELETE for obstruction ID {}".format(row['id']))
 
-        sql = """
-        DELETE FROM walkmapper_obstructions WHERE id={id}
-        """.format(
-            id = row['id'],
-        )
-
+        sql = f"""
+        DELETE FROM walkmapper_obstructions WHERE id={row['id']}
+        """
         self.run_carto_query(sql)
 
 
     def intersect_boundaries(self, row):
-        print("BOUNDS for obstruction ID {}".format(row['id']))
+        logger.info(f"BOUNDS for obstruction ID {row['id']}")
 
         for boundinfo in BOUNDARY_INTERSECTIONS:
-            print("    {}".format(boundinfo['polygontable']))
+            logger.info(f"    {boundinfo['polygontable']}")
 
             sql = """
             UPDATE walkmapper_obstructions
