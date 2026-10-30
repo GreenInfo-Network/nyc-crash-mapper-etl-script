@@ -12,21 +12,21 @@ import sys
 import os
 import time
 import re
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+# from sendgrid import SendGridAPIClient
+# from sendgrid.helpers.mail import Mail
 
 
 CARTO_USER_NAME = 'chekpeds'
 CARTO_API_KEY = os.environ['CARTO_API_KEY'] # make sure this is available in bash as $CARTO_API_KEY
 CARTO_MASTER_KEY = os.environ['CARTO_MASTER_KEY'] # make sure this is available in bash as $CARTO_MASTER_KEY
-CARTO_CRASHES_TABLE = 'crashes_all_prod'
+CARTO_CRASHES_TABLE = 'crashes_all_prod_v2'
 CARTO_INTERSECTIONS_TABLE = 'nyc_intersections'
 CARTO_SQL_API_BASEURL = 'https://%s.carto.com/api/v2/sql' % CARTO_USER_NAME
 CARTO_BATCH_API_BASEURL = 'https://%s.carto.com/api/v2/sql/job' % CARTO_USER_NAME
 SODA_API_COLLISIONS_BASEURL = 'https://data.cityofnewyork.us/resource/h9gi-nx95.json'
 SOCRATA_APP_TOKEN_PUBLIC = os.environ['SOCRATA_APP_TOKEN_PUBLIC'] # make sure this is available in bash as $SOCRATA_APP_TOKEN_PUBLIC
 
-FETCH_HOWMANY_MONTHS = 2  # when looking for new records in SODA, look back how many months?
+FETCH_HOWMANY_MONTHS = 3  # when looking for new records in SODA, look back how many months?
 UPDATES_HOW_FAR_BACK = 90  # when looking for later-modified records, look how many days back?
 INTERSECTIONS_CRASHCOUNT_MONTHS = 24  # when tallying crash counts for intersections, go back how many months?
 
@@ -42,6 +42,8 @@ def send_email_notification(subject_str, message_str):
     """
     Send email notification when some error happens
     """
+    return  # hasn't worked in a while, and if anybody was receiving them, they weren't reading them
+
     message = Mail(
         from_email = os.environ.get('SENDGRID_USERNAME'),
         to_emails = os.environ.get('SENDGRID_TO_EMAIL'),
@@ -81,6 +83,7 @@ def get_soda_data():
     Make a GET request to the Socrata SODA API for collision data within the last month.
     Limit is purposefully set high as it defaults to 1000, and we routinely see 200-500 crashes in a single day.
     Make a call to CARTO to get the list of all socrata_id IDs in this same time period.
+    These IDs correspond to the collision_id at NYC OpenData.
     """
     sincewhen = (date.today() - relativedelta(months=FETCH_HOWMANY_MONTHS))
 
@@ -95,9 +98,12 @@ def get_soda_data():
                 '$$app_token': '%s' % SOCRATA_APP_TOKEN_PUBLIC
             }
         ).json()
-        
+
         if isinstance(crashdata, list) and len(crashdata):  # this is good, the expected condition
             logger.info('Got {0} SODA entries OK'.format(len(crashdata)))
+            if len(crashdata) >= 50000:
+                logger.info('Got exactly 50000 records from SODA API, meaning we certainly made a a query with more than that.')
+                sys.exit()
         elif isinstance(crashdata, dict):  # and crashdata['error'] error in SODA API call 
             logger.error(crashdata['message'])
             raise Exception("No data returned from SODA API")
@@ -171,11 +177,14 @@ def format_string_for_insert_val():
     """
     val_string_tmp = []
 
+    # danger! hardcoded offsets here; any change to fields and sequence could wreak havoc
     for i in range(0, 23):
-        if i < 8 or i >= 14:
-            val_string_tmp.append("{%d}" % i)
+        if i == 22:
+            val_string_tmp.append("$${%d}$$" % i)
         elif i == 13:
             val_string_tmp.append("'{%d}'::timestamptz" % i)
+        elif i < 8 or i >= 14:
+            val_string_tmp.append("{%d}" % i)
         else:
             val_string_tmp.append("$${%d}$$" % i)
 
@@ -199,7 +208,7 @@ def format_soda_response(datarows, already_ids):
     for row in datarows:
         # this is already present at CARTO, don't insert a duplicate!
         # see also create_sql_insert() which has a check as well, but it's A LOT more efficient to bail here
-        if int(row['collision_id']) in already_ids:
+        if row['collision_id'] in already_ids:
             continue
 
         datestring = "%sT%s" % (row['crash_date'].split('T')[0], row['crash_time'])
@@ -248,11 +257,13 @@ def format_soda_response(datarows, already_ids):
         else:
             zipcode = ''
 
+        """hopefully they fixed this one-time data mistake
         # Nov 2018, a few rare records (4022160, 4051650) lacks number_of_persons_X fields, which is a fatal error if we let it go
         if 'number_of_persons_killed' not in row:
             row['number_of_persons_killed'] = int(row['number_of_motorist_killed']) + int(row['number_of_cyclist_killed']) + int(row['number_of_pedestrians_killed'])
         if 'number_of_persons_injured' not in row:
             row['number_of_persons_injured'] = int(row['number_of_motorist_injured']) + int(row['number_of_cyclist_injured']) + int(row['number_of_pedestrians_injured'])
+        """
 
         # format 5 potential values for contributing_factor into a string formatted for a Postgres array
         contributing_factor = format_string_for_postgres_array(row, 'contributing_factor_vehicle')
@@ -287,10 +298,10 @@ def format_soda_response(datarows, already_ids):
             date_time.strftime('%Y'),
             date_time.strftime('%m'),
             '1',
-            str(row['collision_id'])
+            row['collision_id']
         ))
 
-        # logger.info([ str(row['collision_id']), date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
+        # logger.info([ row['collision_id'], date_time.strftime('%Y-%m-%dT%H:%M:%SZ'),lng, lat ])
 
     logger.info('Found {0} new rows to insert into CARTO'.format(len(vals)))
 
@@ -540,7 +551,7 @@ def make_carto_sql_api_request(query):
     INSERT, UPDATE, and DELETE queries.
     @param {query} string
     """
-    payload = {'q': query, 'api_key': CARTO_API_KEY}
+    payload = {'q': query, 'api_key': CARTO_MASTER_KEY}
 
     try:
         # print(CARTO_SQL_API_BASEURL)
@@ -553,8 +564,6 @@ def make_carto_sql_api_request(query):
 
 
 def start_carto_batchjob(querylist):
-    # print(query)
-
     url = "{}?api_key={}".format(CARTO_BATCH_API_BASEURL, CARTO_MASTER_KEY)
     jsonbody = {
         'query': querylist,
@@ -844,7 +853,7 @@ def find_updated_killcounts():
         sodacrashrecords = {}
         for crash in crashdata:
             if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
-                sodacrashrecords[int(crash['collision_id'])] = crash
+                sodacrashrecords[crash['collision_id']] = crash
         logger.info('Got {0} SODA entries updated since {1}'.format(len(sodacrashrecords), sincewhen))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
         logger.error(crashdata['message'])
@@ -881,7 +890,7 @@ def find_updated_killcounts():
     while True:
         chunkend = chunkstart + howmanyperchunk
         thesecrashes = allcrashids[chunkstart:chunkend]
-        crashidlist = ",".join([ str(crash) for crash in thesecrashes ])
+        crashidlist = ",".join([ f"'{crashid}'" for crashid in thesecrashes ])
         if not crashidlist:
             break
         logger.info('Fetching CARTO IDs, chunk {} to {} has {} records'.format(chunkstart, chunkend, len(thesecrashes)))
@@ -947,14 +956,15 @@ def find_updated_killcounts():
                     number_of_pedestrian_killed={spk}, number_of_pedestrian_injured={spi},
                     number_of_persons_killed={stk}, number_of_persons_injured={sti},
                     hasvehicle_other_unspecified=NULL, persons_injured_allocated=NULL, cyclist_injured_bycar=NULL
-                    WHERE socrata_id={id}""".format(
-                    table=CARTO_CRASHES_TABLE,
-                    stk=stk, sti=sti,
-                    spk=spk, spi=spi,
-                    smk=smk, smi=smi,
-                    sck=sck, sci=sci,
-                    id=crashid
-                )
+                    WHERE socrata_id='{id}'
+                    """.format(
+                        table=CARTO_CRASHES_TABLE,
+                        stk=stk, sti=sti,
+                        spk=spk, spi=spi,
+                        smk=smk, smi=smi,
+                        sck=sck, sci=sci,
+                        id=crashid
+                    )
             # logger.info(sql)
             make_carto_sql_api_request(sql)
             time.sleep(1)  # 1 query per second rate limit
@@ -991,7 +1001,7 @@ def find_updated_latlongs():
         sodacrashrecords = {}
         for crash in crashdata:
             if crash[':updated_at'][:10] > crash[':created_at'][:10]:  # per above, updated AFTER it was created
-                sodacrashrecords[int(crash['collision_id'])] = crash
+                sodacrashrecords[crash['collision_id']] = crash
         logger.info('find_updated_latlongs() Got {0} SODA entries updated since {1}'.format(len(sodacrashrecords), sincewhen))
     elif isinstance(crashdata, dict) and crashdata['error']:  # error in SODA API call
         logger.error(crashdata['message'])
@@ -1015,7 +1025,7 @@ def find_updated_latlongs():
         WHERE socrata_id IN ({})
         """.format(
             CARTO_CRASHES_TABLE,
-            ','.join([str(i) for i in idchunk]),
+            ','.join([f"'{crashid}'" for crashid in idchunk]),
         )
 
         try:
@@ -1066,7 +1076,7 @@ def find_updated_latlongs():
             the_geom=ST_SETSRID(ST_GEOMFROMTEXT('POINT({} {})'), 4326),
             longitude={}, latitude={},
             borough=NULL, city_council=NULL, senate=NULL, assembly=NULL, businessdistrict=NULL, community_board=NULL, neighborhood=NULL, nypd_precinct=NULL
-        WHERE socrata_id={}
+        WHERE socrata_id='{}'
         """.format(
             CARTO_CRASHES_TABLE,
             lng_new, lat_new,
@@ -1104,7 +1114,12 @@ def update_hasvehicle(vehicleboolfieldfieldname, standardizedalias):
 
 def update_analyzeindex():
     logger.info('update_analyzeindex()')
-    return 'VACUUM FULL {}'.format(CARTO_CRASHES_TABLE)
+    return 'VACUUM FULL ANALYZE {}'.format(CARTO_CRASHES_TABLE)
+
+
+def update_analyzeindex2():
+    logger.info('update_analyzeindex()')
+    return 'VACUUM FULL nyc_intersections'
 
 
 # https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
@@ -1194,6 +1209,7 @@ def main():
         # particularly if we've done a larger update e.g. hasvehicle without NOT NULL, or a "backlog" run
         start_carto_batchjob([
             update_analyzeindex(),
+            update_analyzeindex2(),
         ])
     except Exception as e:
         logger.info(e)
